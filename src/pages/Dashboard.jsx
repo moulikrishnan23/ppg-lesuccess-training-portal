@@ -1,14 +1,344 @@
 import { useEffect, useRef, useState } from "react";
 import { Chart } from "chart.js/auto";
 import { callServer } from "../services/appsScript";
-import { KpiCard, Loading } from "../components/Common";
+import { KpiCard, Loading, Empty } from "../components/Common";
+
+/* ------------------------------------------------------------------ */
+/*  Small local helpers (kept inside this file so no other files      */
+/*  need to change)                                                    */
+/* ------------------------------------------------------------------ */
+
+function todayDateStr() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset();
+  return new Date(now.getTime() - offset * 60_000).toISOString().slice(0, 10);
+}
+
+function toNumberOrNull(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isNaN(n) ? null : n;
+}
+
+function pctLabel(value) {
+  return value === "" || value === null || value === undefined
+    ? "-"
+    : `${value}%`;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Modal shell                                                        */
+/* ------------------------------------------------------------------ */
+
+function Modal({ title, subtitle, onClose, children }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.45)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 500,
+        padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--surface)",
+          borderRadius: "var(--radius)",
+          width: "100%",
+          maxWidth: 620,
+          maxHeight: "85vh",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+        }}
+      >
+        <div
+          style={{
+            padding: "16px 20px",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <div>
+            <div
+              style={{ fontSize: 16, fontWeight: 700, color: "var(--primary)" }}
+            >
+              {title}
+            </div>
+            {subtitle && (
+              <div
+                style={{
+                  fontSize: 12.5,
+                  color: "var(--text-muted)",
+                  marginTop: 3,
+                }}
+              >
+                {subtitle}
+              </div>
+            )}
+          </div>
+          <button
+            className="btn btn-outline"
+            style={{ padding: "4px 10px", fontSize: 12 }}
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+        <div style={{ padding: 20, overflowY: "auto" }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function DeptTable({ columns, rows }) {
+  if (!rows || !rows.length)
+    return <Empty>No department-wise data found.</Empty>;
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            {columns.map((c) => (
+              <th key={c.key}>{c.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={row.department || i}>
+              {columns.map((c) => (
+                <td key={c.key}>{row[c.key] ?? "-"}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Student ranking table (used for both Top 10 and Least 10)          */
+/* ------------------------------------------------------------------ */
+
+function StudentRankTable({ students, onSelect }) {
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Name</th>
+            <th>Department</th>
+          </tr>
+        </thead>
+        <tbody>
+          {students.map((s) => (
+            <tr
+              key={`${s.rank}-${s.name}`}
+              onClick={() => onSelect(s)}
+              style={{ cursor: "pointer" }}
+              title="Click to view day-wise improvement"
+            >
+              <td>{s.rank}</td>
+              <td>{s.name}</td>
+              <td>{s.department}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Student day-wise improvement popup body                            */
+/* ------------------------------------------------------------------ */
+
+function StudentTimeline({ detail }) {
+  const chartCanvasRef = useRef(null);
+  const chartInstanceRef = useRef(null);
+
+  const timeline = [
+    { label: "Pre Test 1", value: toNumberOrNull(detail.preTest?.Total) },
+    ...(detail.tests || []).map((t) => ({
+      label: t.blockLabel,
+      value: toNumberOrNull(t.Total),
+    })),
+    { label: "Post Test", value: toNumberOrNull(detail.postTest?.total) },
+  ];
+
+  const max = Math.max(1, ...timeline.map((t) => t.value || 0));
+  let previous = null;
+
+  useEffect(() => {
+    if (!chartCanvasRef.current) return;
+
+    chartInstanceRef.current?.destroy();
+    chartInstanceRef.current = new Chart(chartCanvasRef.current, {
+      type: "line",
+      data: {
+        labels: timeline.map((t) => t.label),
+        datasets: [
+          {
+            label: "Score",
+            data: timeline.map((t) => t.value),
+            spanGaps: true,
+            tension: 0.3,
+            fill: true,
+            borderColor: "#0B3D5C",
+            backgroundColor: "rgba(11, 61, 92, 0.12)",
+            pointBackgroundColor: "#0B3D5C",
+            pointRadius: 3,
+          },
+        ],
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true },
+          x: { ticks: { maxRotation: 60, minRotation: 0 } },
+        },
+      },
+    });
+
+    return () => chartInstanceRef.current?.destroy();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail]);
+
+  return (
+    <>
+      <div className="kpi-grid" style={{ marginBottom: 18 }}>
+        <KpiCard
+          label="Attendance %"
+          value={pctLabel(detail.attendance?.attendancePct)}
+        />
+        <KpiCard label="Present" value={detail.attendance?.present ?? "-"} />
+        <KpiCard label="Absent" value={detail.attendance?.absent ?? "-"} />
+        <KpiCard label="Pre-Test Total" value={detail.preTest?.Total ?? "-"} />
+        <KpiCard
+          label="Post-Test %"
+          value={
+            detail.postTest?.percentage !== undefined
+              ? pctLabel(detail.postTest.percentage)
+              : "-"
+          }
+        />
+        <KpiCard
+          label="Mock Interview"
+          value={detail.mockInterview?.score ?? "-"}
+        />
+      </div>
+
+      <div
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          color: "var(--text)",
+          marginBottom: 8,
+        }}
+      >
+        Day-wise Improvement — Graph
+      </div>
+      <div style={{ marginBottom: 22 }}>
+        <canvas ref={chartCanvasRef} height="200" />
+      </div>
+
+      <div
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          color: "var(--text)",
+          marginBottom: 8,
+        }}
+      >
+        Day-wise Improvement — Detail
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {timeline.map((t, i) => {
+          const hasValue = t.value !== null;
+          const delta =
+            hasValue && previous !== null ? t.value - previous : null;
+          if (hasValue) previous = t.value;
+
+          return (
+            <div key={`${t.label}-${i}`}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: 12.5,
+                  marginBottom: 3,
+                }}
+              >
+                <span style={{ color: "var(--text-muted)" }}>{t.label}</span>
+                <span>
+                  <strong>{hasValue ? t.value : "-"}</strong>
+                  {delta !== null && (
+                    <span
+                      style={{
+                        marginLeft: 8,
+                        color: delta >= 0 ? "var(--success)" : "var(--danger)",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {delta >= 0 ? "▲" : "▼"} {Math.abs(delta)}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div
+                style={{
+                  height: 8,
+                  borderRadius: 6,
+                  background: "var(--background)",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    height: "100%",
+                    width: hasValue
+                      ? `${Math.max(4, (t.value / max) * 100)}%`
+                      : "0%",
+                    background: "var(--primary)",
+                    borderRadius: 6,
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Dashboard                                                           */
+/* ------------------------------------------------------------------ */
 
 export default function Dashboard({ token, onMessage }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [modal, setModal] = useState(null);
   const attRef = useRef(null);
   const deptRef = useRef(null);
   const charts = useRef({});
+  const rosterRef = useRef(null);
+  const mountedRef = useRef(true);
 
   const load = () => {
     setError("");
@@ -20,6 +350,13 @@ export default function Dashboard({ token, onMessage }) {
         onMessage?.(message, "error");
       });
   };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!token) return;
@@ -43,14 +380,16 @@ export default function Dashboard({ token, onMessage }) {
         type: "doughnut",
         data: {
           labels: ["Present", "Absent", "Half Day"],
-          datasets: [{
-            data: [
-              data.kpis.presentToday,
-              data.kpis.absentToday,
-              data.kpis.halfDayToday,
-            ],
-            backgroundColor: ["#1B8A5A", "#DC2626", "#D97706"],
-          }],
+          datasets: [
+            {
+              data: [
+                data.kpis.presentToday,
+                data.kpis.absentToday,
+                data.kpis.halfDayToday,
+              ],
+              backgroundColor: ["#1B8A5A", "#DC2626", "#D97706"],
+            },
+          ],
         },
         options: { plugins: { legend: { display: true } } },
       });
@@ -61,11 +400,13 @@ export default function Dashboard({ token, onMessage }) {
         type: "bar",
         data: {
           labels: data.departmentSummary.map((x) => x.department),
-          datasets: [{
-            data: data.departmentSummary.map((x) => x.count),
-            backgroundColor: "#0B3D5C",
-            borderRadius: 6,
-          }],
+          datasets: [
+            {
+              data: data.departmentSummary.map((x) => x.count),
+              backgroundColor: "#0B3D5C",
+              borderRadius: 6,
+            },
+          ],
         },
         options: {
           plugins: { legend: { display: false } },
@@ -74,14 +415,331 @@ export default function Dashboard({ token, onMessage }) {
       });
     }
 
-    return () => Object.values(charts.current).forEach((chart) => chart?.destroy());
+    return () =>
+      Object.values(charts.current).forEach((chart) => chart?.destroy());
   }, [data]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Data fetchers used by the popups                                 */
+  /* ---------------------------------------------------------------- */
+
+  async function getRoster() {
+    if (rosterRef.current) return rosterRef.current;
+    const roster = await callServer("getStudents", token);
+    rosterRef.current = roster || [];
+    return rosterRef.current;
+  }
+
+  async function fetchAttendanceDeptBreakdown(status) {
+    const res = await callServer(
+      "getAttendance",
+      token,
+      data?.kpis?.attendanceDateKey || todayDateStr(),
+    );
+    const records = res?.records || [];
+    const map = new Map();
+
+    records.forEach((r) => {
+      const dept = r.department || "Unassigned";
+      if (!map.has(dept))
+        map.set(dept, { department: dept, total: 0, count: 0 });
+      const entry = map.get(dept);
+      entry.total += 1;
+      if (r.status === status) entry.count += 1;
+    });
+
+    return Array.from(map.values())
+      .sort((a, b) => a.department.localeCompare(b.department))
+      .map((e) => ({
+        department: e.department,
+        count: e.count,
+        deptTotal: e.total,
+        pct: e.total ? `${Math.round((e.count / e.total) * 1000) / 10}%` : "0%",
+      }));
+  }
+
+  async function fetchPrePostComparison() {
+    const rows = await callServer("getPrePostComparison", token);
+    return rows || [];
+  }
+
+  async function fetchMockInterviewDeptBreakdown() {
+    const [roster, mock] = await Promise.all([
+      getRoster(),
+      callServer("getMockInterviewData", token),
+    ]);
+
+    const regToDept = new Map(
+      roster.map((s) => [String(s.registerNumber), s.department]),
+    );
+    const nameToDept = new Map(
+      roster.map((s) => [
+        String(s.name || "")
+          .trim()
+          .toUpperCase(),
+        s.department,
+      ]),
+    );
+
+    const map = new Map();
+    (mock.records || []).forEach((r) => {
+      const dept =
+        regToDept.get(String(r.regNo)) ||
+        nameToDept.get(
+          String(r.name || "")
+            .trim()
+            .toUpperCase(),
+        ) ||
+        "Unassigned";
+
+      if (!map.has(dept))
+        map.set(dept, { department: dept, attended: 0, sum: 0 });
+      const entry = map.get(dept);
+
+      const hasScore =
+        r.score !== "" && r.score !== null && r.score !== undefined;
+      if (hasScore) {
+        entry.attended += 1;
+        entry.sum += Number(r.percentage) || 0;
+      }
+    });
+
+    return Array.from(map.values())
+      .sort((a, b) => a.department.localeCompare(b.department))
+      .map((e) => ({
+        department: e.department,
+        attended: e.attended,
+        avgScore: e.attended
+          ? `${Math.round((e.sum / e.attended) * 100) / 100}%`
+          : "-",
+      }));
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Modal openers                                                    */
+  /* ---------------------------------------------------------------- */
+
+  function openDeptModal({ title, subtitle, columns, fetcher }) {
+    setModal({
+      kind: "dept",
+      title,
+      subtitle,
+      columns,
+      rows: [],
+      loading: true,
+      error: "",
+    });
+
+    fetcher()
+      .then((rows) => {
+        if (!mountedRef.current) return;
+        setModal((prev) =>
+          prev && prev.kind === "dept" && prev.title === title
+            ? { ...prev, rows, loading: false }
+            : prev,
+        );
+      })
+      .catch((err) => {
+        if (!mountedRef.current) return;
+        const message = err?.message || "Unable to load this breakdown.";
+        setModal((prev) =>
+          prev && prev.kind === "dept" && prev.title === title
+            ? { ...prev, loading: false, error: message }
+            : prev,
+        );
+      });
+  }
+
+  function openTotalStudentsModal() {
+    openDeptModal({
+      title: "Total Students — Department-wise",
+      columns: [
+        { key: "department", label: "Department" },
+        { key: "count", label: "Total Students" },
+      ],
+      fetcher: async () =>
+        (data.departmentSummary || []).map((d) => ({
+          department: d.department,
+          count: d.count,
+        })),
+    });
+  }
+
+  function openPresentTodayModal() {
+    openDeptModal({
+      title: "Present Today — Department-wise",
+      columns: [
+        { key: "department", label: "Department" },
+        { key: "count", label: "Present" },
+        { key: "deptTotal", label: "Dept. Total" },
+        { key: "pct", label: "% Present" },
+      ],
+      fetcher: () => fetchAttendanceDeptBreakdown("Present"),
+    });
+  }
+
+  function openAbsentTodayModal() {
+    openDeptModal({
+      title: "Absent Today — Department-wise",
+      columns: [
+        { key: "department", label: "Department" },
+        { key: "count", label: "Absent" },
+        { key: "deptTotal", label: "Dept. Total" },
+        { key: "pct", label: "% Absent" },
+      ],
+      fetcher: () => fetchAttendanceDeptBreakdown("Absent"),
+    });
+  }
+
+  function openHalfDayTodayModal() {
+    openDeptModal({
+      title: "Half Day Today — Department-wise",
+      columns: [
+        { key: "department", label: "Department" },
+        { key: "count", label: "Half Day" },
+        { key: "deptTotal", label: "Dept. Total" },
+        { key: "pct", label: "% Half Day" },
+      ],
+      fetcher: () => fetchAttendanceDeptBreakdown("Half Day"),
+    });
+  }
+
+  function openOverallAttendanceModal() {
+    openDeptModal({
+      title: "Overall Attendance % — Department-wise",
+      columns: [
+        { key: "department", label: "Department" },
+        { key: "attendancePct", label: "Attendance %" },
+        { key: "studentsCompared", label: "Students" },
+      ],
+      fetcher: async () =>
+        (await fetchPrePostComparison()).map((d) => ({
+          department: d.department,
+          attendancePct: pctLabel(d.averageAttendance),
+          studentsCompared: d.studentsCompared,
+        })),
+    });
+  }
+
+  function openAvgPreTestModal() {
+    openDeptModal({
+      title: "Avg Pre-Test — Department-wise",
+      subtitle:
+        "This batch currently has a single Pre-Test (Pre Test 1). If more pre-tests are added later, this table can be extended to show each one side by side.",
+      columns: [
+        { key: "department", label: "Department" },
+        { key: "preTestPct", label: "Pre-Test 1 Average" },
+        { key: "studentsCompared", label: "Students" },
+      ],
+      fetcher: async () =>
+        (await fetchPrePostComparison()).map((d) => ({
+          department: d.department,
+          preTestPct: pctLabel(d.preTestAverage),
+          studentsCompared: d.studentsCompared,
+        })),
+    });
+  }
+
+  function openAvgImprovementModal() {
+    openDeptModal({
+      title: "Avg Improvement - Daily % — Department-wise",
+      columns: [
+        { key: "department", label: "Department" },
+        { key: "improvementPct", label: "Avg Improvement" },
+        { key: "studentsCompared", label: "Students" },
+      ],
+      fetcher: async () =>
+        (await fetchPrePostComparison()).map((d) => ({
+          department: d.department,
+          improvementPct: pctLabel(d.improvement),
+          studentsCompared: d.studentsCompared,
+        })),
+    });
+  }
+
+  function openMockInterviewModal() {
+    openDeptModal({
+      title: "Mock Interview Avg — Department-wise",
+      columns: [
+        { key: "department", label: "Department" },
+        { key: "attended", label: "Students Attended" },
+        { key: "avgScore", label: "Average Score" },
+      ],
+      fetcher: fetchMockInterviewDeptBreakdown,
+    });
+  }
+
+  function openStudentModal(student) {
+    setModal({
+      kind: "student",
+      title: student.name,
+      subtitle: student.department,
+      loading: true,
+      error: "",
+      detail: null,
+    });
+
+    (async () => {
+      try {
+        let registerNumber = student.registerNumber || null;
+
+        if (!registerNumber) {
+          const roster = await getRoster();
+          const target = String(student.name || "")
+            .trim()
+            .toUpperCase();
+          const match = roster.find(
+            (s) =>
+              String(s.name || "")
+                .trim()
+                .toUpperCase() === target,
+          );
+          if (!match) {
+            throw new Error("Student record not found in the student roster.");
+          }
+          registerNumber = match.registerNumber;
+        }
+
+        const detail = await callServer(
+          "getStudentById",
+          token,
+          registerNumber,
+        );
+        if (!detail) throw new Error("Unable to load student performance.");
+
+        if (!mountedRef.current) return;
+        setModal((prev) =>
+          prev && prev.kind === "student" && prev.title === student.name
+            ? { ...prev, loading: false, detail }
+            : prev,
+        );
+      } catch (err) {
+        if (!mountedRef.current) return;
+        const message = err?.message || "Unable to load student data.";
+        setModal((prev) =>
+          prev && prev.kind === "student" && prev.title === student.name
+            ? { ...prev, loading: false, error: message }
+            : prev,
+        );
+      }
+    })();
+  }
+
+  function closeModal() {
+    setModal(null);
+  }
+
+  /* ---------------------------------------------------------------- */
 
   if (error && !data) {
     return (
       <div className="empty-state">
         <div>{error}</div>
-        <button className="btn btn-outline" style={{ marginTop: 10 }} onClick={load}>
+        <button
+          className="btn btn-outline"
+          style={{ marginTop: 10 }}
+          onClick={load}
+        >
           Retry
         </button>
       </div>
@@ -91,31 +749,109 @@ export default function Dashboard({ token, onMessage }) {
 
   const k = data.kpis;
   const cards = [
-    ["Total Students", k.totalStudents],
-    ["Present Today", k.presentToday],
-    ["Absent Today", k.absentToday],
-    ["Half Day Today", k.halfDayToday],
-    ["Overall Attendance %", `${k.overallAttendancePct}%`],
-    ["Training Day", `${k.trainingDay} / ${k.totalTrainingDays}`],
-    ["Completed Days", k.completedDays],
-    ["Remaining Days", k.remainingDays],
-    ["Avg Pre-Test", `${k.preTestAverage}%`],
-    ["Avg Post-Test", `${k.postTestAverage}%`],
-    ["Avg Improvement - Daily %", `${k.averageImprovement}%`],
-    ["Mock Interview Avg", `${k.mockInterviewAvgScore}%`],
+    {
+      label: "Total Students",
+      value: k.totalStudents,
+      onClick: openTotalStudentsModal,
+    },
+    {
+      label: "Present Today",
+      value: k.presentToday,
+      onClick: openPresentTodayModal,
+    },
+    {
+      label: "Absent Today",
+      value: k.absentToday,
+      onClick: openAbsentTodayModal,
+    },
+    {
+      label: "Half Day Today",
+      value: k.halfDayToday,
+      onClick: openHalfDayTodayModal,
+    },
+    {
+      label: "Overall Attendance %",
+      value: `${k.overallAttendancePct}%`,
+      onClick: openOverallAttendanceModal,
+    },
+    {
+      label: "Training Day",
+      value: `${k.trainingDay} / ${k.totalTrainingDays}`,
+    },
+    { label: "Completed Days", value: k.completedDays },
+    { label: "Remaining Days", value: k.remainingDays },
+    {
+      label: "Avg Overall Test",
+      value: `${k.preTestAverage}%`,
+      onClick: openAvgPreTestModal,
+    },
+    // { label: "Avg Post-Test", value: `${k.postTestAverage}%` },
+    {
+      label: "Avg Improvement - Daily %",
+      value: `${k.averageImprovement}%`,
+      onClick: openAvgImprovementModal,
+    },
+    {
+      label: "Mock Interview Avg",
+      value: `${k.mockInterviewAvgScore}%`,
+      onClick: openMockInterviewModal,
+    },
   ];
+
+  const leastStudents = Array.isArray(data.leastStudents)
+    ? data.leastStudents
+    : null;
 
   return (
     <>
       <div className="kpi-grid">
-        {cards.map(([label, value]) => (
-          <KpiCard key={label} label={label} value={value} />
+        {cards.map((c) => (
+          <div
+            key={c.label}
+            onClick={c.onClick}
+            style={c.onClick ? { cursor: "pointer" } : undefined}
+            title={
+              c.onClick ? "Click for department-wise breakdown" : undefined
+            }
+          >
+            <KpiCard label={c.label} value={c.value} />
+          </div>
         ))}
       </div>
 
       <div className="chart-grid">
         <div className="panel">
-          <h3>Today's Attendance</h3>
+          <h3>Top 10 Students</h3>
+          {data.topStudents?.length ? (
+            <StudentRankTable
+              students={data.topStudents}
+              onSelect={openStudentModal}
+            />
+          ) : (
+            <Empty>No top-student data found.</Empty>
+          )}
+        </div>
+
+        <div className="panel">
+          <h3>Least 10 Students</h3>
+          {leastStudents?.length ? (
+            <StudentRankTable
+              students={leastStudents}
+              onSelect={openStudentModal}
+            />
+          ) : (
+            <Empty>
+              Least-performing student data isn't provided by the server yet.
+              See the note shared alongside this file for the small backend
+              addition needed to enable this section.
+            </Empty>
+          )}
+        </div>
+      </div>
+
+      <div className="chart-grid">
+        <div className="panel">
+          <h3>Attendance Report</h3>
           <canvas ref={attRef} height="220" />
         </div>
         <div className="panel">
@@ -124,23 +860,37 @@ export default function Dashboard({ token, onMessage }) {
         </div>
       </div>
 
-      <div className="panel">
-        <h3>Top 10 Students</h3>
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead><tr><th>Rank</th><th>Name</th><th>Department</th></tr></thead>
-            <tbody>
-              {data.topStudents?.map((s) => (
-                <tr key={`${s.rank}-${s.name}`}>
-                  <td>{s.rank}</td>
-                  <td>{s.name}</td>
-                  <td>{s.department}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {modal?.kind === "dept" && (
+        <Modal
+          title={modal.title}
+          subtitle={modal.subtitle}
+          onClose={closeModal}
+        >
+          {modal.loading ? (
+            <Loading />
+          ) : modal.error ? (
+            <Empty>{modal.error}</Empty>
+          ) : (
+            <DeptTable columns={modal.columns} rows={modal.rows} />
+          )}
+        </Modal>
+      )}
+
+      {modal?.kind === "student" && (
+        <Modal
+          title={modal.title}
+          subtitle={modal.subtitle}
+          onClose={closeModal}
+        >
+          {modal.loading ? (
+            <Loading />
+          ) : modal.error ? (
+            <Empty>{modal.error}</Empty>
+          ) : (
+            <StudentTimeline detail={modal.detail} />
+          )}
+        </Modal>
+      )}
     </>
   );
 }

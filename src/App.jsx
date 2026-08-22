@@ -130,9 +130,9 @@ export default function App() {
     case "tests":
       content = <Tests {...common} />;
       break;
-    case "posttest":
-      content = <PostTest {...common} />;
-      break;
+    // case "posttest":
+    //   content = <PostTest {...common} />;
+    //   break;
     case "mock":
       content = <MockInterview {...common} />;
       break;
