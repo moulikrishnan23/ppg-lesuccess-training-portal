@@ -68,7 +68,7 @@ export default function PostTest({ token, user, onMessage }) {
         {!data ? <Loading /> : (
           <>
             <div style={{ marginBottom: 10, color: "var(--text-muted)", fontSize: 12.5 }}>
-              Date: {data.dateInfo?.date || "-"} · Total Mark: {data.dateInfo?.totalMark ?? "-"}
+              {/* Date: {data.dateInfo?.date || "-"} · Total Mark: {data.dateInfo?.totalMark ?? "-"} */}
             </div>
             <div className="table-wrap">
               <table className="data-table">

@@ -102,7 +102,7 @@ export default function Dashboard({ token, onMessage }) {
     ["Avg Pre-Test", `${k.preTestAverage}%`],
     ["Avg Post-Test", `${k.postTestAverage}%`],
     ["Avg Improvement - Daily %", `${k.averageImprovement}%`],
-    ["Mock Interview Avg", k.mockInterviewAvgScore],
+    ["Mock Interview Avg", `${k.mockInterviewAvgScore}%`],
   ];
 
   return (

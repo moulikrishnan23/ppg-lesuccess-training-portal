@@ -66,7 +66,7 @@ export default function Tests({ token, user, onMessage }) {
         {!data ? <Loading /> : !data.block ? <Empty>No assessment data available.</Empty> : (
           <>
             <div style={{ marginBottom: 10, color: "var(--text-muted)", fontSize: 12.5 }}>
-              Date: {data.dateInfo?.date || "-"} · Total Mark: {data.dateInfo?.totalMark ?? "-"}
+              {/* Date: {data.dateInfo?.date || "-"} · Total Mark: {data.dateInfo?.totalMark ?? "-"} */}
             </div>
             <div className="table-wrap">
               <table className="data-table">
