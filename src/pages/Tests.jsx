@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { callServer } from "../services/appsScript";
-import { Empty, Loading } from "../components/Common";
+import {
+  Empty,
+  Loading,
+  FilterBar,
+  departmentOptions,
+  courseOptions,
+  courseFromDepartment,
+  normalizeDepartmentLabel,
+} from "../components/Common";
 
 const DEFAULT_OPTION = {
   id: "PRE_TEST_1",
@@ -103,7 +111,7 @@ function StudentPopup({ student, onClose, totalMark }) {
               <div className="kpi-card">
                 <div className="kpi-label">Total</div>
                 <div className="kpi-value">
-                  {student.total + " / " + totalMark ?? "-"}
+                  {student.total !== "" && student.total !== null && student.total !== undefined ? `${student.total} / ${totalMark}` : "-"}
                 </div>
               </div>
             </div>
@@ -211,7 +219,7 @@ function RankingTable({ title, students, totalMark, onSelect }) {
 
                   <td>{student.department || "-"}</td>
 
-                  <td>{student.total + " / " + totalMark ?? "-"}</td>
+                  <td>{student.total !== "" && student.total !== null && student.total !== undefined ? `${student.total} / ${totalMark}` : "-"}</td>
 
                   <td>{formatPercentage(student.percentage)}</td>
                 </tr>
@@ -431,6 +439,14 @@ export default function Tests({ token, user, onMessage }) {
 
   const [search, setSearch] = useState("");
 
+  const [filters, setFilters] = useState({
+    department: "All",
+    course: "All",
+  });
+
+  const [sortKey, setSortKey] = useState("");
+  const [sortDir, setSortDir] = useState("desc");
+
   const [data, setData] = useState(null);
 
   const [drafts, setDrafts] = useState({});
@@ -551,14 +567,56 @@ export default function Tests({ token, user, onMessage }) {
   const records = useMemo(() => {
     const value = search.trim().toLowerCase();
 
-    if (!value) {
-      return data?.records || [];
-    }
+    const filtered = (data?.records || []).filter((record) => {
+      const department = normalizeDepartmentLabel(record.department);
+      const name = String(record.name || "").toLowerCase();
 
-    return (data?.records || []).filter((record) =>
-      record.name.toLowerCase().includes(value),
-    );
-  }, [data, search]);
+      if (value && !name.includes(value)) return false;
+      if (filters.department !== "All" && department !== filters.department) {
+        return false;
+      }
+      if (
+        filters.course !== "All" &&
+        courseFromDepartment(department) !== filters.course
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (!sortKey) return filtered;
+
+    return [...filtered].sort((a, b) => {
+      let av = Number(a.scores?.[sortKey]);
+      let bv = Number(b.scores?.[sortKey]);
+
+      if (sortKey === "Percentage") {
+        if (Number.isFinite(av) && av > 0 && av <= 1) av *= 100;
+        if (Number.isFinite(bv) && bv > 0 && bv <= 1) bv *= 100;
+      }
+
+      const aValid = Number.isFinite(av);
+      const bValid = Number.isFinite(bv);
+
+      if (!aValid && !bValid) return 0;
+      if (!aValid) return 1;
+      if (!bValid) return -1;
+
+      const result = av - bv;
+      return sortDir === "asc" ? result : -result;
+    });
+  }, [data, search, filters, sortKey, sortDir]);
+
+  const deptOptions = useMemo(
+    () => departmentOptions((data?.records || []).map((r) => r.department)),
+    [data],
+  );
+
+  const courseOpts = useMemo(
+    () => courseOptions((data?.records || []).map((r) => r.department)),
+    [data],
+  );
 
   async function saveRow(row) {
     try {
@@ -740,6 +798,30 @@ export default function Tests({ token, user, onMessage }) {
           />
         </div>
 
+        <FilterBar
+          filters={[
+            { key: "department", label: "Department", options: deptOptions },
+            { key: "course", label: "Course", options: courseOpts },
+          ]}
+          values={filters}
+          onChange={(key, value) =>
+            setFilters((prev) => ({ ...prev, [key]: value }))
+          }
+          sorts={[
+            { key: "MCQ", label: "MCQ" },
+            { key: "2 Marks", label: "2 Marks" },
+            { key: "Coding", label: "Coding" },
+            { key: "Total", label: "Total" },
+            { key: "Percentage", label: "Percentage" },
+          ]}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onSortChange={(key, dir) => {
+            setSortKey(key);
+            setSortDir(dir);
+          }}
+        />
+
         {trainer && (
           <>
             <div className="field">
@@ -871,7 +953,7 @@ export default function Tests({ token, user, onMessage }) {
                       <tr key={record.row}>
                         <td>{record.sNo}</td>
 
-                        <td>{record.department}</td>
+                        <td>{normalizeDepartmentLabel(record.department)}</td>
 
                         <td>{record.name}</td>
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Chart } from "chart.js/auto";
 import { callServer } from "../services/appsScript";
-import { KpiCard, Loading, Empty } from "../components/Common";
+import { KpiCard, Loading, Empty, normalizeDepartmentLabel } from "../components/Common";
 
 /* ------------------------------------------------------------------ */
 /*  Small local helpers (kept inside this file so no other files      */
@@ -118,6 +118,13 @@ function DeptTable({ columns, rows }) {
 /* ------------------------------------------------------------------ */
 
 function StudentRankTable({ students, onSelect }) {
+  const hasDayWiseData = students.some(
+    (s) =>
+      s.latestPercentage !== undefined ||
+      s.improvementGrowth !== undefined ||
+      s.compositeScore !== undefined,
+  );
+
   return (
     <div className="table-wrap">
       <table className="data-table">
@@ -126,19 +133,39 @@ function StudentRankTable({ students, onSelect }) {
             <th>Rank</th>
             <th>Name</th>
             <th>Department</th>
+            {hasDayWiseData && <th>Latest Test</th>}
+            {hasDayWiseData && <th>Growth</th>}
+            {hasDayWiseData && <th>Rank Score</th>}
           </tr>
         </thead>
         <tbody>
           {students.map((s) => (
             <tr
-              key={`${s.rank}-${s.name}`}
+              key={`${s.rank}-${s.registerNumber || s.name}`}
               onClick={() => onSelect(s)}
               style={{ cursor: "pointer" }}
-              title="Click to view day-wise improvement"
+              title="Click to view student details"
             >
               <td>{s.rank}</td>
               <td>{s.name}</td>
               <td>{s.department}</td>
+              {hasDayWiseData && (
+                <>
+                  <td>
+                    {s.latestPercentage === undefined
+                      ? "-"
+                      : `${s.latestPercentage}%`}
+                  </td>
+                  <td>
+                    {s.improvementGrowth === undefined
+                      ? "-"
+                      : `${s.improvementGrowth}%`}
+                  </td>
+                  <td>
+                    {s.compositeScore === undefined ? "-" : s.compositeScore}
+                  </td>
+                </>
+              )}
             </tr>
           ))}
         </tbody>
@@ -210,15 +237,15 @@ function StudentTimeline({ detail }) {
         <KpiCard label="Pre-Test Total" value={detail.preTest?.Total ?? "-"} />
         <KpiCard
           label="Communication"
-          value={pctLabel(detail.mockInterview?.communication)}
+          value={detail.mockInterview?.communication ?? "-"}
         />
         <KpiCard
           label="Confidence"
-          value={pctLabel(detail.mockInterview?.confidence)}
+          value={detail.mockInterview?.confidence ?? "-"}
         />
         <KpiCard
           label="Technical"
-          value={pctLabel(detail.mockInterview?.technical)}
+          value={detail.mockInterview?.technical ?? "-"}
         />
       </div>
 
@@ -307,7 +334,10 @@ export default function Dashboard({ token, onMessage }) {
   const load = () => {
     setError("");
     return callServer("getDashboardData", token, { cache: false })
-      .then(setData)
+      .then((result) => {
+        setData(result);
+        return result;
+      })
       .catch((err) => {
         const message = err?.message || "Unable to load dashboard.";
         setError(message);
@@ -324,10 +354,16 @@ export default function Dashboard({ token, onMessage }) {
 
   useEffect(() => {
     if (!token) return;
+
     load();
-    const interval = window.setInterval(load, 10_000);
+
+    const interval = window.setInterval(() => {
+      load();
+    }, 10_000);
+
     const onFocus = () => load();
     window.addEventListener("focus", onFocus);
+
     return () => {
       window.clearInterval(interval);
       window.removeEventListener("focus", onFocus);
@@ -390,12 +426,13 @@ export default function Dashboard({ token, onMessage }) {
   }
 
   async function fetchAttendanceDeptBreakdown(status) {
-    const res = await callServer("getAttendance", token, todayDateStr());
+    const targetDate = data?.kpis?.attendanceDateKey || todayDateStr();
+    const res = await callServer("getAttendance", token, targetDate);
     const records = res?.records || [];
     const map = new Map();
 
     records.forEach((r) => {
-      const dept = r.department || "Unassigned";
+      const dept = normalizeDepartmentLabel(r.department || "Unassigned");
       if (!map.has(dept)) map.set(dept, { department: dept, total: 0, count: 0 });
       const entry = map.get(dept);
       entry.total += 1;
@@ -523,6 +560,50 @@ export default function Dashboard({ token, onMessage }) {
     });
   }
 
+  function fetchAttendanceOverallByDepartment() {
+    return callServer(
+      "getAttendance",
+      token,
+      data?.kpis?.attendanceDateKey || todayDateStr()
+    ).then((res) => {
+      const map = new Map();
+
+      (res?.records || []).forEach((r) => {
+        const department = normalizeDepartmentLabel(r.department);
+        if (!map.has(department)) {
+          map.set(department, {
+            department,
+            present: 0,
+            absent: 0,
+            halfDay: 0,
+          });
+        }
+
+        const entry = map.get(department);
+        if (r.status === "Present") entry.present += 1;
+        else if (r.status === "Absent") entry.absent += 1;
+        else if (r.status === "Half Day") entry.halfDay += 1;
+      });
+
+      return Array.from(map.values())
+        .sort((a, b) => a.department.localeCompare(b.department))
+        .map((entry) => {
+          const total = entry.present + entry.absent + entry.halfDay;
+          const pct =
+            total > 0
+              ? Math.round(
+                  ((entry.present + entry.halfDay * 0.5) / total) * 10000
+                ) / 100
+              : null;
+
+          return {
+            department: entry.department,
+            attendancePct: pctLabel(pct),
+          };
+        });
+    });
+  }
+
   function openOverallAttendanceModal() {
     openDeptModal({
       title: "Overall Attendance % — Department-wise",
@@ -530,17 +611,7 @@ export default function Dashboard({ token, onMessage }) {
         { key: "department", label: "Department" },
         { key: "attendancePct", label: "Attendance %" },
       ],
-      fetcher: async () => {
-        const rows = await callServer(
-          "getDashboardDepartmentAnalytics",
-          token
-        );
-
-        return (rows || []).map((d) => ({
-          department: d.department,
-          attendancePct: pctLabel(d.attendancePct),
-        }));
-      },
+      fetcher: fetchAttendanceOverallByDepartment,
     });
   }
 
@@ -554,7 +625,8 @@ export default function Dashboard({ token, onMessage }) {
       fetcher: async () => {
         const rows = await callServer(
           "getDashboardDepartmentAnalytics",
-          token
+          token,
+          {}
         );
 
         return (rows || []).map((d) => ({
@@ -575,7 +647,8 @@ export default function Dashboard({ token, onMessage }) {
       fetcher: async () => {
         const rows = await callServer(
           "getDashboardDepartmentAnalytics",
-          token
+          token,
+          {}
         );
 
         return (rows || []).map((d) => ({
@@ -596,7 +669,8 @@ export default function Dashboard({ token, onMessage }) {
       fetcher: async () => {
         const rows = await callServer(
           "getDashboardDepartmentAnalytics",
-          token
+          token,
+          {}
         );
 
         return (rows || []).map((d) => ({
@@ -705,7 +779,7 @@ export default function Dashboard({ token, onMessage }) {
 
       <div className="chart-grid">
         <div className="panel">
-        <h3>Top 10 Students</h3>
+        <h3>Top 10 Students — Latest Day Performance + Growth</h3>
         {data.topStudents?.length ? (
           <StudentRankTable students={data.topStudents} onSelect={openStudentModal} />
         ) : (
@@ -718,10 +792,7 @@ export default function Dashboard({ token, onMessage }) {
         {leastStudents?.length ? (
           <StudentRankTable students={leastStudents} onSelect={openStudentModal} />
         ) : (
-          <Empty>
-            Least-performing student data isn't provided by the server yet. See the note shared
-            alongside this file for the small backend addition needed to enable this section.
-          </Empty>
+          <Empty>No least-performing student data found.</Empty>
         )}
       </div>
       </div>

@@ -1,6 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { callServer } from "../services/appsScript";
-import { Empty, Loading } from "../components/Common";
+import {
+  Empty,
+  Loading,
+  FilterBar,
+  departmentOptions,
+  courseOptions,
+  courseFromDepartment,
+  normalizeDepartmentLabel,
+} from "../components/Common";
+
+function normalizeStatus(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (text === "half-day" || text === "halfday") return "Half Day";
+  if (text === "present") return "Present";
+  if (text === "absent") return "Absent";
+  return String(value ?? "").trim();
+}
 
 export default function Attendance({ token, user, onMessage }) {
   const trainer = user.role === "Trainer";
@@ -10,14 +26,23 @@ export default function Attendance({ token, user, onMessage }) {
     return new Date(now.getTime() - offset * 60_000).toISOString().slice(0, 10);
   });
   const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState({
+    department: "All",
+    course: "All",
+    status: "All",
+  });
   const [records, setRecords] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [newStudent, setNewStudent] = useState({ name: "", registerNumber: "", department: "" });
+  const [newStudent, setNewStudent] = useState({
+    name: "",
+    registerNumber: "",
+    department: "",
+  });
 
   const load = () => {
     setRecords(null);
     callServer("getAttendance", token, date)
-      .then((res) => setRecords(res))
+      .then(setRecords)
       .catch(() => onMessage("Unable to load attendance.", "error"));
   };
 
@@ -26,12 +51,46 @@ export default function Attendance({ token, user, onMessage }) {
     load();
   }, [token, date]);
 
-  const filtered = useMemo(
-    () => (records?.records || []).filter((r) =>
-      r.name.toLowerCase().includes(search.toLowerCase())
-    ),
-    [records, search]
+  const rawRecords = records?.records || [];
+
+  const deptOptions = useMemo(
+    () => departmentOptions(rawRecords.map((r) => r.department)),
+    [rawRecords],
   );
+
+  const courseOpts = useMemo(
+    () => courseOptions(rawRecords.map((r) => r.department)),
+    [rawRecords],
+  );
+
+  const statusOpts = [
+    { value: "Present", label: "Present" },
+    { value: "Absent", label: "Absent" },
+    { value: "Half Day", label: "Half-Day" },
+  ];
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return rawRecords.filter((r) => {
+      const name = String(r.name || "").toLowerCase();
+      const regNo = String(r.registerNumber || "").toLowerCase();
+      const department = normalizeDepartmentLabel(r.department);
+      const status = normalizeStatus(r.status);
+
+      if (query && !name.includes(query) && !regNo.includes(query)) return false;
+      if (filters.department !== "All" && department !== filters.department) return false;
+      if (
+        filters.course !== "All" &&
+        courseFromDepartment(department) !== filters.course
+      ) {
+        return false;
+      }
+      if (filters.status !== "All" && status !== filters.status) return false;
+
+      return true;
+    });
+  }, [rawRecords, search, filters]);
 
   function updateStatus(row, status) {
     setRecords((prev) => {
@@ -39,16 +98,16 @@ export default function Attendance({ token, user, onMessage }) {
       return {
         ...prev,
         records: prev.records.map((r) =>
-          r.row === row ? { ...r, status } : r
+          r.row === row ? { ...r, status } : r,
         ),
       };
     });
   }
 
   async function save() {
-    const selected = (records?.records || [])
+    const selected = rawRecords
       .filter((r) => r.status)
-      .map((r) => ({ row: r.row, status: r.status }));
+      .map((r) => ({ row: r.row, status: normalizeStatus(r.status) }));
 
     if (!selected.length) {
       onMessage("Please mark attendance for at least one student.", "error");
@@ -56,7 +115,10 @@ export default function Attendance({ token, user, onMessage }) {
     }
 
     try {
-      const res = await callServer("saveAttendance", token, { date, records: selected });
+      const res = await callServer("saveAttendance", token, {
+        date,
+        records: selected,
+      });
       onMessage(res.message, res.success ? "success" : "error");
       if (res.success) load();
     } catch {
@@ -69,9 +131,11 @@ export default function Attendance({ token, user, onMessage }) {
       onMessage("Student Name and Register Number are required.", "error");
       return;
     }
+
     try {
       const res = await callServer("addStudent", token, newStudent);
       onMessage(res.message, res.success ? "success" : "error");
+
       if (res.success) {
         setAddOpen(false);
         setNewStudent({ name: "", registerNumber: "", department: "" });
@@ -87,17 +151,45 @@ export default function Attendance({ token, user, onMessage }) {
       <div className="toolbar">
         <div className="field">
           <label>Date</label>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
         </div>
+
         <div className="field search-box">
           <label>Search Student</label>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Type a name..." />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Name or register number..."
+          />
         </div>
+
+        <FilterBar
+          filters={[
+            { key: "department", label: "Department", options: deptOptions },
+            { key: "course", label: "Course", options: courseOpts },
+            { key: "status", label: "Status", options: statusOpts },
+          ]}
+          values={filters}
+          onChange={(key, value) =>
+            setFilters((prev) => ({ ...prev, [key]: value }))
+          }
+        />
 
         {trainer ? (
           <>
-            <button className="btn btn-outline" onClick={() => setAddOpen((v) => !v)}>+ Add Student</button>
-            <button className="btn btn-save" onClick={save}>Save Attendance</button>
+            <button
+              className="btn btn-outline"
+              onClick={() => setAddOpen((v) => !v)}
+            >
+              + Add Student
+            </button>
+            <button className="btn btn-save" onClick={save}>
+              Save Attendance
+            </button>
           </>
         ) : (
           <div className="readonly-note">View Only — Management</div>
@@ -118,39 +210,83 @@ export default function Attendance({ token, user, onMessage }) {
                 <input
                   value={newStudent[key]}
                   placeholder={placeholder}
-                  onChange={(e) => setNewStudent((prev) => ({ ...prev, [key]: e.target.value }))}
+                  onChange={(e) =>
+                    setNewStudent((prev) => ({
+                      ...prev,
+                      [key]: e.target.value,
+                    }))
+                  }
                 />
               </div>
             ))}
-            <button className="btn btn-save" onClick={addStudent}>Add Student</button>
-            <button className="btn btn-outline" onClick={() => setAddOpen(false)}>Cancel</button>
+            <button className="btn btn-save" onClick={addStudent}>
+              Add Student
+            </button>
+            <button
+              className="btn btn-outline"
+              onClick={() => setAddOpen(false)}
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
 
       <div className="panel">
-        {!records ? <Loading /> : !records.withinTrainingPeriod ? (
+        {!records ? (
+          <Loading />
+        ) : !records.withinTrainingPeriod ? (
           <Empty>Selected date is outside the training period for this batch.</Empty>
         ) : (
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>S.No</th><th>Department</th><th>Student Name</th><th>Status</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>S.No</th>
+                  <th>Department</th>
+                  <th>Student Name</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
               <tbody>
-                {filtered.length ? filtered.map((r) => (
-                  <tr key={r.row}>
-                    <td>{r.sNo}</td><td>{r.department}</td><td>{r.name}</td>
-                    <td>
-                      {trainer ? (
-                        <select className="status-select" value={r.status || ""} onChange={(e) => updateStatus(r.row, e.target.value)}>
-                          <option value="">-- Select --</option>
-                          <option>Present</option>
-                          <option>Absent</option>
-                          <option>Half Day</option>
-                        </select>
-                      ) : <span className={`status-${(r.status || "").replace(" ", "")}`}>{r.status || "-"}</span>}
+                {filtered.length ? (
+                  filtered.map((r) => (
+                    <tr key={r.row}>
+                      <td>{r.sNo}</td>
+                      <td>{normalizeDepartmentLabel(r.department)}</td>
+                      <td>{r.name}</td>
+                      <td>
+                        {trainer ? (
+                          <select
+                            className="status-select"
+                            value={normalizeStatus(r.status) || ""}
+                            onChange={(e) => updateStatus(r.row, e.target.value)}
+                          >
+                            <option value="">-- Select --</option>
+                            <option value="Present">Present</option>
+                            <option value="Absent">Absent</option>
+                            <option value="Half Day">Half-Day</option>
+                          </select>
+                        ) : (
+                          <span
+                            className={`status-${normalizeStatus(r.status).replace(
+                              " ",
+                              "",
+                            )}`}
+                          >
+                            {r.status || "-"}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="4">
+                      <Empty>No students found.</Empty>
                     </td>
                   </tr>
-                )) : <tr><td colSpan="4"><Empty>No students found.</Empty></td></tr>}
+                )}
               </tbody>
             </table>
           </div>
