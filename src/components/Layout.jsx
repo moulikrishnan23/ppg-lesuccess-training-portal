@@ -5,13 +5,13 @@ export const NAV_ITEMS = [
   { id: "attendance", label: "Attendance", icon: "✓" },
   { id: "syllabus", label: "Syllabus", icon: "☷" },
   { id: "tests", label: "Pre-Test / Tests", icon: "✎" },
+  { id: "reports", label: "Pre-Test Full Reports", icon: "▣" },
   // { id: "posttest", label: "Post-Test", icon: "✎" },
-  { id: "mock", label: "Mock Interview", icon: "●" },
   { id: "performance", label: "Student Performance", icon: "★" },
+  { id: "mock", label: "Mock Interview", icon: "●" },
+  { id: "analysis", label: "Analysis", icon: "☷" },
   // { id: "prepost", label: "Pre vs Post", icon: "⇆" },
   { id: "feedback", label: "Feedback", icon: "✉" },
-  { id: "analysis", label: "Analysis", icon: "☷" },
-  { id: "reports", label: "Reports", icon: "▣" },
 ];
 
 export default function Layout({ user, page, setPage, onLogout, children }) {

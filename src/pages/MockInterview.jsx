@@ -61,12 +61,10 @@ export default function MockInterview({ token, user, onMessage }) {
       <div className="panel">
         {!data ? <Loading /> : (
           <>
-            <div style={{ marginBottom: 10, color: "var(--text-muted)", fontSize: 12.5 }}>
-              Total Mark: {data.totalMark ?? "-"} · Average: {data.average ?? "-"}
-            </div>
+            
             <div className="table-wrap">
               <table className="data-table">
-                <thead><tr><th>S.No</th><th>Reg. No</th><th>Student Name</th><th>Score</th><th>%</th>{trainer && <th />}</tr></thead>
+                <thead><tr><th>S.No</th><th>Dept</th><th>Student Name</th><th>Total Score</th><th>Total Percentage</th>{trainer && <th />}</tr></thead>
                 <tbody>
                   {rows.length ? rows.map((r) => (
                     <tr key={r.row}>
@@ -78,6 +76,9 @@ export default function MockInterview({ token, user, onMessage }) {
                   )) : <tr><td colSpan={trainer ? 6 : 5}><Empty>No records found.</Empty></td></tr>}
                 </tbody>
               </table>
+            </div>
+            <div style={{ marginTop: 10, paddingRight: 20, textAlign:"end", color: "var(--text-muted)", fontSize: 12.5 }}>
+              <b>Average:</b> {data.average ?? "-"}%
             </div>
           </>
         )}

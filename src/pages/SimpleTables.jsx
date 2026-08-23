@@ -277,7 +277,7 @@ export function Reports({ token, onMessage }) {
                 <th>Department</th>
                 <th>Reg. No</th>
                 <th>Total</th>
-                <th>%</th>
+                <th>Percentage</th>
               </tr>
             </thead>
             <tbody>
