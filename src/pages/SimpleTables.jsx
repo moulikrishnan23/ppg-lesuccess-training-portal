@@ -58,11 +58,15 @@ function sortedRows(rows, sortKey, sortDir) {
 
 function formatDateForInput(value) {
   if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
 
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 10);
+  const text = String(value).trim();
+
+  // Already normalized by Apps Script
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  return "";
 }
 
 export function PrePost({ token, onMessage }) {
