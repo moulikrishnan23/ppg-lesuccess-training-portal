@@ -106,7 +106,7 @@ export default function Syllabus({ token, user, onMessage }) {
                       <th>Day</th>
                       <th>Date</th>
                       <th>Topic</th>
-                      <th>Category</th>
+                      {/* <th>Category</th> */}
                       <th>Trainer</th>
                       <th>Status</th>
                       {user.role === "Trainer" && <th />}
@@ -126,7 +126,7 @@ export default function Syllabus({ token, user, onMessage }) {
                           <td>{d.day}</td>
                           <td>{d.date || "-"}</td>
                           <td>{d.topic || "-"}</td>
-                          <td>{d.category || "Technical"}</td>
+                          {/* <td>{d.category || "Technical"}</td> */}
                           <td>{d.trainer || "-"}</td>
                           <td>
                             <span className={`pill ${cls}`}>{d.status}</span>
