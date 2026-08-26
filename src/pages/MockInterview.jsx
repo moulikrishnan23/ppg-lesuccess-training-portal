@@ -172,7 +172,7 @@ export default function MockInterview({ token, user, onMessage }) {
                     <th>S.No</th>
                     <th>Department</th>
                     <th>Student Name</th>
-                    <th>Total Score</th>
+                    <th>Total Score (Out of 50)</th>
                     <th>Total Percentage</th>
                     <th>Remarks</th>
                     {trainer && <th />}

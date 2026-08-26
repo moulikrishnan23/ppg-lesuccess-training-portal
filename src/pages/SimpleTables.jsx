@@ -342,10 +342,10 @@ export function Analysis({ token, onMessage }) {
                 <th>S.No</th>
                 <th>Name</th>
                 <th>Department</th>
-                <th>Communication</th>
-                <th>Confidence</th>
-                <th>Technical</th>
-                <th>Total</th>
+                <th>Communication (5)</th>
+                <th>Confidence (5)</th>
+                <th>Technical (40)</th>
+                <th>Total (50)</th>
                 <th>Percentage</th>
               </tr>
             </thead>
