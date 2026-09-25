@@ -599,6 +599,7 @@ function getDashboardData(sessionToken) {
 
       const allRanked = computeOverallStudentRankings_(sessionToken);
       const testColumns = allRanked.testColumns || [];
+      const totalMaxMarks = allRanked.totalMaxMarks || 0;
 
       const topStudents = allRanked.slice().sort(function (a, b) {
         if (b.percentage !== a.percentage) {
@@ -641,7 +642,8 @@ function getDashboardData(sessionToken) {
         departmentSummary: departmentSummary,
         topStudents: topStudents,
         leastStudents: leastStudents,
-        testColumns: testColumns
+        testColumns: testColumns,
+        totalMaxMarks: totalMaxMarks
       };
     }
   );
@@ -1458,17 +1460,17 @@ function computeOverallStudentRankings_(sessionToken) {
 
     blocks.forEach(function (block) {
       const totalIndex = block.cols.indexOf('Total');
+      let tm = 0;
       if (totalIndex >= 0) {
-        let tm = 0;
         if (block.id === 'PRE_TEST_1') {
-          tm = safeNum_(totalMarkRow[4]);
-          if (!tm) tm = 100;
+          tm = safeNum_(totalMarkRow[3]) || safeNum_(totalMarkRow[4]) || 100;
         } else {
           const absTotalCol = block.startCol + totalIndex;
-          tm = safeNum_(totalMarkRow[absTotalCol - 4]);
+          tm = safeNum_(totalMarkRow[absTotalCol - 4]) || safeNum_(totalMarkRow[block.startCol - 4]) || 0;
         }
         totalMaxMarks += tm;
       }
+      block.maxMarks = tm;
     });
 
     if (totalMaxMarks <= 0) totalMaxMarks = 205;
@@ -1532,8 +1534,9 @@ function computeOverallStudentRankings_(sessionToken) {
     return null;
   }
 
+  const preBlock = blocks.find(function (b) { return b.id === 'PRE_TEST_1'; });
   const testColumns = [
-    { key: 'preTest1', label: 'PreTest 1', id: 'PRE_TEST_1' }
+    { key: 'preTest1', label: 'PreTest 1', id: 'PRE_TEST_1', maxMarks: preBlock ? (preBlock.maxMarks || 100) : 100 }
   ];
 
   blocks.forEach(function (b) {
@@ -1542,7 +1545,8 @@ function computeOverallStudentRankings_(sessionToken) {
         key: b.id,
         altKey: 'test' + b.id.replace('TEST_', ''),
         label: b.label || ('Test ' + b.id.replace('TEST_', '')),
-        id: b.id
+        id: b.id,
+        maxMarks: b.maxMarks || 0
       });
     }
   });
@@ -1587,6 +1591,7 @@ function computeOverallStudentRankings_(sessionToken) {
       preTest: preTest1Score,
       testScores: sc,
       total: Math.round(total * 100) / 100,
+      totalMaxMarks: totalMaxMarks,
       percentage: Math.round(pct * 100) / 100,
       hasAnyTest: hasAnyTest
     };
@@ -1602,6 +1607,7 @@ function computeOverallStudentRankings_(sessionToken) {
     ranked.push(sObj);
   });
 
+  ranked.totalMaxMarks = totalMaxMarks;
   ranked.testColumns = testColumns;
   return ranked;
 }
@@ -1629,6 +1635,7 @@ function computeOverallTopStudents_(sessionToken, limit) {
     s.rank = i + 1;
     return s;
   });
+  res.totalMaxMarks = ranked.totalMaxMarks;
   res.testColumns = ranked.testColumns;
   return res;
 }
@@ -1727,6 +1734,7 @@ function computeLeastStudents_(sessionToken, limit) {
     s.rank = i + 1;
     return s;
   });
+  res.totalMaxMarks = ranked.totalMaxMarks;
   res.testColumns = ranked.testColumns;
   return res;
 }
