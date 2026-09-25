@@ -599,23 +599,28 @@ function getDashboardData(sessionToken) {
       const allRanked = computeOverallStudentRankings_(sessionToken);
 
       const topStudents = allRanked.slice().sort(function (a, b) {
-        if (b.compositeScore !== a.compositeScore) {
-          return b.compositeScore - a.compositeScore;
+        if (b.percentage !== a.percentage) {
+          return b.percentage - a.percentage;
         }
-        if (b.latestPercentage !== a.latestPercentage) {
-          return b.latestPercentage - a.latestPercentage;
+        if (b.total !== a.total) {
+          return b.total - a.total;
+        }
+        if (b.preTest !== a.preTest) {
+          return b.preTest - a.preTest;
         }
         return a.name.localeCompare(b.name);
       }).slice(0, 10).map(function (s, i) {
         return Object.assign({}, s, { rank: i + 1 });
       });
 
-      const leastStudents = allRanked.slice().sort(function (a, b) {
-        if (a.compositeScore !== b.compositeScore) {
-          return a.compositeScore - b.compositeScore;
+      const leastStudents = allRanked.slice().filter(function (s) {
+        return s.hasAnyTest && s.total > 0;
+      }).sort(function (a, b) {
+        if (a.percentage !== b.percentage) {
+          return a.percentage - b.percentage;
         }
-        if (a.latestPercentage !== a.latestPercentage) {
-          return a.latestPercentage - b.latestPercentage;
+        if (a.total !== b.total) {
+          return a.total - b.total;
         }
         return a.name.localeCompare(b.name);
       }).slice(0, 10).map(function (s, i) {
@@ -1381,82 +1386,184 @@ function getOverallTestScoresByName_() {
 }
 
 /**
- * OVERALL STUDENT RANKINGS
+ * PERFORMANCE STUDENT RANKINGS (Top 10 & Least 10)
  * ------------------------------------------------------------
- * Ranked by each student's overall performance across every
- * available assessment in "PreTest & Regular Test" (Pre Test 1 +
- * Test 2..Test 6), i.e. their average percentage across whichever
- * tests have actually been conducted so far.
- *
- * Each record includes:
- *   - latestPercentage: percentage on the latest conducted test
- *   - previousPercentage: percentage on the preceding test
- *   - improvementGrowth: % growth from previous to latest test
- *   - compositeScore: overall average test percentage across all tests
+ * Computes student performance rankings using the exact fields:
+ * - Communication (from Analysis sheet)
+ * - Confidence (from Analysis sheet)
+ * - Technical (from Analysis sheet)
+ * - PreTest (from PreTest & Regular Test sheet)
+ * - Test 1 ('-')
+ * - Test 2..Test 6 (from PreTest & Regular Test sheet)
+ * - Total = sum of all test marks (PreTest + Test 2 + Test 3 + Test 4 + Test 5 + Test 6)
+ * - Percentage = (Total / totalMaxMarks) * 100
  */
 function computeOverallStudentRankings_(sessionToken) {
   const students = getStudents(sessionToken);
-  const scoresByName = getOverallTestScoresByName_();
+  if (!students || !students.length) return [];
 
-  let latestOrder = null;
-  let latestLabel = '';
+  // 1. Read Analysis sheet
+  const analysisSheet = getSheet_(SHEETS.ANALYSIS);
+  const lastAnalysisRow = findLastNamedRow_(analysisSheet, 2, 2);
+  const analysisValues = lastAnalysisRow >= 2
+    ? analysisSheet.getRange(2, 1, lastAnalysisRow - 1, 9).getValues()
+    : [];
 
-  Object.keys(scoresByName).forEach(function (key) {
-    (scoresByName[key] || []).forEach(function (score) {
-      if (
-        latestOrder === null ||
-        score.order > latestOrder
-      ) {
-        latestOrder = score.order;
-        latestLabel = score.label;
+  const analysisMap = {};
+  for (let i = 0; i < analysisValues.length; i++) {
+    const rawName = normalizeValue_(analysisValues[i][1]);
+    if (!rawName) continue;
+    const key = nameKey_(rawName);
+    analysisMap[key] = {
+      name: rawName,
+      communication: safeNum_(analysisValues[i][4]),
+      confidence: safeNum_(analysisValues[i][5]),
+      technical: safeNum_(analysisValues[i][6])
+    };
+  }
+
+  // 2. Read PreTest & Regular Test sheet
+  const testSheet = getSheet_(SHEETS.TESTS);
+  const dataStartRow = 6;
+  const lastTestRow = findLastNamedRow_(testSheet, dataStartRow, 3);
+  const numTestRows = lastTestRow >= dataStartRow ? lastTestRow - dataStartRow + 1 : 0;
+
+  const blocks = [];
+  const pre = TEST_BLOCKS.find(function (b) { return b.id === 'PRE_TEST_1'; });
+  if (pre) blocks.push(pre);
+  getRegularTestBlocksFromSheet_().forEach(function (b) { blocks.push(b); });
+
+  const testMap = {};
+  let totalMaxMarks = 0;
+
+  if (numTestRows > 0 && blocks.length > 0) {
+    const maxCol = Math.max.apply(null, blocks.map(function (b) { return b.startCol + b.cols.length - 1; }));
+    const baseNames = testSheet.getRange(dataStartRow, 1, numTestRows, 3).getValues();
+    const testMatrix = testSheet.getRange(dataStartRow, 4, numTestRows, maxCol - 3).getValues();
+    const totalMarkRow = testSheet.getRange(3, 4, 1, maxCol - 3).getValues()[0];
+
+    blocks.forEach(function (block) {
+      const totalIndex = block.cols.indexOf('Total');
+      if (totalIndex >= 0) {
+        let tm = 0;
+        if (block.id === 'PRE_TEST_1') {
+          tm = safeNum_(totalMarkRow[4]);
+          if (!tm) tm = 100;
+        } else {
+          const absTotalCol = block.startCol + totalIndex;
+          tm = safeNum_(totalMarkRow[absTotalCol - 4]);
+        }
+        totalMaxMarks += tm;
       }
     });
-  });
 
-  const ranked = [];
-  students.forEach(function (student) {
-    const scores = (scoresByName[nameKey_(student.name)] || [])
-      .slice()
-      .sort(function (a, b) {
-        return a.order - b.order;
+    if (totalMaxMarks <= 0) totalMaxMarks = 205;
+
+    for (let r = 0; r < numTestRows; r++) {
+      const sName = normalizeValue_(baseNames[r][2]);
+      if (!sName) continue;
+      const key = nameKey_(sName);
+      const studentTests = {};
+
+      blocks.forEach(function (block) {
+        const totalIndex = block.cols.indexOf('Total');
+        if (totalIndex >= 0) {
+          const absTotalCol = block.startCol + totalIndex;
+          const rawScore = testMatrix[r][absTotalCol - 4];
+          if (rawScore !== '' && rawScore !== null && rawScore !== undefined) {
+            const sc = Number(rawScore);
+            if (isFinite(sc)) {
+              studentTests[block.id] = sc;
+            }
+          }
+        }
       });
 
-    if (!scores.length) return;
-
-    const latest = scores[scores.length - 1];
-    const previous = scores.length > 1
-      ? scores[scores.length - 2]
-      : null;
-
-    let improvementGrowth = 0;
-    if (
-      previous &&
-      isFinite(previous.percentage) &&
-      isFinite(latest.percentage) &&
-      previous.percentage > 0
-    ) {
-      improvementGrowth =
-        ((latest.percentage - previous.percentage) /
-          Math.abs(previous.percentage)) * 100;
+      testMap[key] = {
+        name: sName,
+        scores: studentTests
+      };
     }
+  }
 
-    const sumPct = scores.reduce(function (sum, item) {
-      return sum + item.percentage;
-    }, 0);
-    const overallAvg = sumPct / scores.length;
+  function findAnalysis(s) {
+    const reg = String(s.registerNumber || '');
+    if (reg.indexOf('712523104011') >= 0) return analysisMap['DEVADHARSHINIV'];
+    if (reg.indexOf('712523104012') >= 0) return analysisMap['DEVADHARSHINIV12'];
+
+    const k = nameKey_(s.name);
+    if (analysisMap[k]) return analysisMap[k];
+    const sWords = k.replace(/[^A-Z]/g, '');
+    const keys = Object.keys(analysisMap);
+    for (let i = 0; i < keys.length; i++) {
+      const ak = keys[i];
+      if (ak.indexOf(sWords) >= 0 || sWords.indexOf(ak) >= 0) return analysisMap[ak];
+    }
+    return null;
+  }
+
+  function findTest(s) {
+    const reg = String(s.registerNumber || '');
+    if (reg.indexOf('712523104011') >= 0) return testMap['DEVADHARSHINIV12'];
+    if (reg.indexOf('712523104012') >= 0) return testMap['DEVADHARSHINIV'];
+
+    const k = nameKey_(s.name);
+    if (testMap[k]) return testMap[k];
+    const sWords = k.replace(/[^A-Z]/g, '');
+    const keys = Object.keys(testMap);
+    for (let i = 0; i < keys.length; i++) {
+      const tk = keys[i];
+      if (tk.indexOf(sWords) >= 0 || sWords.indexOf(tk) >= 0) return testMap[tk];
+    }
+    return null;
+  }
+
+  const ranked = [];
+
+  students.forEach(function (student) {
+    const aRec = findAnalysis(student);
+    const tRec = findTest(student);
+
+    const comm = aRec ? aRec.communication : 0;
+    const conf = aRec ? aRec.confidence : 0;
+    const tech = aRec ? aRec.technical : 0;
+
+    const sc = tRec ? tRec.scores : {};
+    const preTest = sc.PRE_TEST_1 !== undefined ? sc.PRE_TEST_1 : 0;
+    const test2 = sc.TEST_2 !== undefined ? sc.TEST_2 : 0;
+    const test3 = sc.TEST_3 !== undefined ? sc.TEST_3 : 0;
+    const test4 = sc.TEST_4 !== undefined ? sc.TEST_4 : 0;
+    const test5 = sc.TEST_5 !== undefined ? sc.TEST_5 : 0;
+    const test6 = sc.TEST_6 !== undefined ? sc.TEST_6 : 0;
+
+    let total = 0;
+    let hasAnyTest = false;
+    Object.keys(sc).forEach(function (tid) {
+      total += safeNum_(sc[tid]);
+      hasAnyTest = true;
+    });
+
+    const pct = totalMaxMarks > 0 ? (total / totalMaxMarks) * 100 : 0;
 
     ranked.push({
       rank: 0,
       name: student.name,
+      rollNo: canonicalRegisterNumber_(student.registerNumber),
+      registerNumber: canonicalRegisterNumber_(student.registerNumber),
       department: normalizeDepartment_(student.department),
-      registerNumber: student.registerNumber,
-      currentDay: latest ? latest.label : latestLabel,
-      latestPercentage: latest ? Math.round(latest.percentage * 100) / 100 : null,
-      previousPercentage: previous
-        ? Math.round(previous.percentage * 100) / 100
-        : null,
-      improvementGrowth: Math.round(improvementGrowth * 100) / 100,
-      compositeScore: Math.round(overallAvg * 100) / 100
+      communication: comm,
+      confidence: conf,
+      technical: tech,
+      preTest: preTest,
+      test1: '-',
+      test2: test2,
+      test3: test3,
+      test4: test4,
+      test5: test5,
+      test6: test6,
+      total: Math.round(total * 100) / 100,
+      percentage: Math.round(pct * 100) / 100,
+      hasAnyTest: hasAnyTest
     });
   });
 
@@ -1468,11 +1575,14 @@ function computeOverallTopStudents_(sessionToken, limit) {
   const ranked = computeOverallStudentRankings_(sessionToken);
 
   ranked.sort(function (a, b) {
-    if (b.compositeScore !== a.compositeScore) {
-      return b.compositeScore - a.compositeScore;
+    if (b.percentage !== a.percentage) {
+      return b.percentage - a.percentage;
     }
-    if (b.latestPercentage !== a.latestPercentage) {
-      return b.latestPercentage - a.latestPercentage;
+    if (b.total !== a.total) {
+      return b.total - a.total;
+    }
+    if (b.preTest !== a.preTest) {
+      return b.preTest - a.preTest;
     }
     return a.name.localeCompare(b.name);
   });
@@ -1554,18 +1664,21 @@ function getAnalysisForStudent_(student) {
 function computeLeastStudents_(sessionToken, limit) {
   limit = limit || 10;
   const ranked = computeOverallStudentRankings_(sessionToken);
+  const valid = ranked.filter(function (s) {
+    return s.hasAnyTest && s.total > 0;
+  });
 
-  ranked.sort(function (a, b) {
-    if (a.compositeScore !== b.compositeScore) {
-      return a.compositeScore - b.compositeScore;
+  valid.sort(function (a, b) {
+    if (a.percentage !== b.percentage) {
+      return a.percentage - b.percentage;
     }
-    if (a.latestPercentage !== b.latestPercentage) {
-      return a.latestPercentage - b.latestPercentage;
+    if (a.total !== b.total) {
+      return a.total - b.total;
     }
     return a.name.localeCompare(b.name);
   });
 
-  return ranked.slice(0, limit).map(function (s, i) {
+  return valid.slice(0, limit).map(function (s, i) {
     s.rank = i + 1;
     return s;
   });

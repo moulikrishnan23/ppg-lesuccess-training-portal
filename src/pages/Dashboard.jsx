@@ -118,56 +118,134 @@ function DeptTable({ columns, rows }) {
 /* ------------------------------------------------------------------ */
 
 function StudentRankTable({ students, onSelect }) {
-  const hasDayWiseData = students.some(
+  const hasPerformanceData = students.some(
     (s) =>
-      s.latestPercentage !== undefined ||
-      s.improvementGrowth !== undefined ||
-      s.compositeScore !== undefined,
+      s.total !== undefined ||
+      s.percentage !== undefined ||
+      s.preTest !== undefined ||
+      s.communication !== undefined,
   );
+
+  const hasDayWiseData =
+    !hasPerformanceData &&
+    students.some(
+      (s) =>
+        s.latestPercentage !== undefined ||
+        s.improvementGrowth !== undefined ||
+        s.compositeScore !== undefined,
+    );
 
   return (
     <div className="table-wrap">
       <table className="data-table">
         <thead>
           <tr>
-            <th>Rank</th>
-            <th>Name</th>
-            <th>Department</th>
-            {hasDayWiseData && <th>Latest Test</th>}
-            {hasDayWiseData && <th>Growth</th>}
-            {hasDayWiseData && <th>Rank Score</th>}
+            <th style={{ whiteSpace: "nowrap" }}>Rank</th>
+            <th style={{ whiteSpace: "nowrap" }}>Name</th>
+            {hasPerformanceData ? (
+              <>
+                <th style={{ whiteSpace: "nowrap" }}>Roll No</th>
+                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Communication</th>
+                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Confidence</th>
+                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Technical</th>
+                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>PreTest</th>
+                <th style={{ whiteSpace: "nowrap", textAlign: "center" }}>Test 1</th>
+                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Test 2</th>
+                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Test 3</th>
+                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Test 4</th>
+                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Test 5</th>
+                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Test 6</th>
+                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Total</th>
+                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Percentage</th>
+              </>
+            ) : (
+              <>
+                <th style={{ whiteSpace: "nowrap" }}>Department</th>
+                {hasDayWiseData && <th style={{ whiteSpace: "nowrap" }}>Latest Test</th>}
+                {hasDayWiseData && <th style={{ whiteSpace: "nowrap" }}>Growth</th>}
+                {hasDayWiseData && <th style={{ whiteSpace: "nowrap" }}>Rank Score</th>}
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
           {students.map((s) => (
             <tr
-              key={`${s.rank}-${s.registerNumber || s.name}`}
+              key={`${s.rank}-${s.rollNo || s.registerNumber || s.name}`}
               onClick={() => onSelect(s)}
               style={{ cursor: "pointer" }}
               title="Click to view student details"
             >
-              <td>{s.rank}</td>
-              <td>{s.name}</td>
-              <td>{s.department}</td>
-              {hasDayWiseData && (
+              <td style={{ whiteSpace: "nowrap" }}>{s.rank}</td>
+              <td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>{s.name}</td>
+              {hasPerformanceData ? (
                 <>
-                  <td>
-                    {s.latestPercentage === undefined
-                      ? "-"
-                      : `${s.latestPercentage}%`}
+                  <td style={{ whiteSpace: "nowrap" }}>{s.rollNo || s.registerNumber || "-"}</td>
+                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                    {s.communication !== undefined && s.communication !== null ? s.communication : "-"}
                   </td>
-                  <td>
-                    {s.improvementGrowth === undefined
-                      ? "-"
-                      : `${s.improvementGrowth}%`}
+                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                    {s.confidence !== undefined && s.confidence !== null ? s.confidence : "-"}
                   </td>
-                  <td>
-                    {s.compositeScore === undefined
-                      ? "-"
-                      : typeof s.compositeScore === "number"
-                      ? `${s.compositeScore}%`
-                      : s.compositeScore}
+                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                    {s.technical !== undefined && s.technical !== null ? s.technical : "-"}
                   </td>
+                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                    {s.preTest !== undefined && s.preTest !== null ? s.preTest : "-"}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap", textAlign: "center" }}>
+                    {s.test1 !== undefined && s.test1 !== null ? s.test1 : "-"}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                    {s.test2 !== undefined && s.test2 !== null ? s.test2 : "-"}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                    {s.test3 !== undefined && s.test3 !== null ? s.test3 : "-"}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                    {s.test4 !== undefined && s.test4 !== null ? s.test4 : "-"}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                    {s.test5 !== undefined && s.test5 !== null ? s.test5 : "-"}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+                    {s.test6 !== undefined && s.test6 !== null ? s.test6 : "-"}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap", textAlign: "right", fontWeight: 600 }}>
+                    {s.total !== undefined && s.total !== null ? s.total : "-"}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap", textAlign: "right", fontWeight: 600, color: "var(--primary, #0B3D5C)" }}>
+                    {s.percentage !== undefined && s.percentage !== null
+                      ? typeof s.percentage === "number"
+                        ? `${s.percentage.toFixed(2)}%`
+                        : `${s.percentage}%`
+                      : "-"}
+                  </td>
+                </>
+              ) : (
+                <>
+                  <td>{s.department}</td>
+                  {hasDayWiseData && (
+                    <>
+                      <td>
+                        {s.latestPercentage === undefined
+                          ? "-"
+                          : `${s.latestPercentage}%`}
+                      </td>
+                      <td>
+                        {s.improvementGrowth === undefined
+                          ? "-"
+                          : `${s.improvementGrowth}%`}
+                      </td>
+                      <td>
+                        {s.compositeScore === undefined
+                          ? "-"
+                          : typeof s.compositeScore === "number"
+                          ? `${s.compositeScore}%`
+                          : s.compositeScore}
+                      </td>
+                    </>
+                  )}
                 </>
               )}
             </tr>
@@ -651,7 +729,7 @@ export default function Dashboard({ token, onMessage }) {
     setModal({
       kind: "student",
       title: student.name,
-      subtitle: student.department,
+      subtitle: student.rollNo || student.registerNumber || student.department,
       loading: true,
       error: "",
       detail: null,
@@ -659,7 +737,7 @@ export default function Dashboard({ token, onMessage }) {
 
     (async () => {
       try {
-        let registerNumber = student.registerNumber || null;
+        let registerNumber = student.rollNo || student.registerNumber || null;
 
         if (!registerNumber) {
           const roster = await getRoster();
@@ -745,7 +823,7 @@ export default function Dashboard({ token, onMessage }) {
 
       <div className="chart-grid">
         <div className="panel">
-        <h3>Top 10 Students — Latest Day Performance + Growth</h3>
+        <h3>Top 10 Performance</h3>
         {data.topStudents?.length ? (
           <StudentRankTable students={data.topStudents} onSelect={openStudentModal} />
         ) : (
@@ -754,7 +832,7 @@ export default function Dashboard({ token, onMessage }) {
       </div>
 
       <div className="panel">
-        <h3>Least 10 Students</h3>
+        <h3>Least 10 Performance</h3>
         {leastStudents?.length ? (
           <StudentRankTable students={leastStudents} onSelect={openStudentModal} />
         ) : (
