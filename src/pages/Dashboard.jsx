@@ -162,7 +162,11 @@ function StudentRankTable({ students, onSelect }) {
                       : `${s.improvementGrowth}%`}
                   </td>
                   <td>
-                    {s.compositeScore === undefined ? "-" : s.compositeScore}
+                    {s.compositeScore === undefined
+                      ? "-"
+                      : typeof s.compositeScore === "number"
+                      ? `${s.compositeScore}%`
+                      : s.compositeScore}
                   </td>
                 </>
               )}
@@ -330,18 +334,25 @@ export default function Dashboard({ token, onMessage }) {
   const charts = useRef({});
   const rosterRef = useRef(null);
   const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
 
   const load = () => {
+    if (loadingRef.current) return Promise.resolve();
+    loadingRef.current = true;
     setError("");
     return callServer("getDashboardData", token, { cache: false })
       .then((result) => {
-        setData(result);
+        if (mountedRef.current) setData(result);
         return result;
       })
       .catch((err) => {
+        if (!mountedRef.current) return;
         const message = err?.message || "Unable to load dashboard.";
         setError(message);
         onMessage?.(message, "error");
+      })
+      .finally(() => {
+        loadingRef.current = false;
       });
   };
 
@@ -354,19 +365,10 @@ export default function Dashboard({ token, onMessage }) {
 
   useEffect(() => {
     if (!token) return;
-
     load();
-
-    const interval = window.setInterval(() => {
-      load();
-    }, 10_000);
-
-    const onFocus = () => load();
-    window.addEventListener("focus", onFocus);
-
+    const interval = window.setInterval(load, 30_000);
     return () => {
       window.clearInterval(interval);
-      window.removeEventListener("focus", onFocus);
     };
   }, [token]);
 
@@ -467,10 +469,11 @@ export default function Dashboard({ token, onMessage }) {
 
     const map = new Map();
     (mock.records || []).forEach((r) => {
-      const dept =
+      const rawDept =
         regToDept.get(String(r.regNo)) ||
         nameToDept.get(String(r.name || "").trim().toUpperCase()) ||
         "Unassigned";
+      const dept = normalizeDepartmentLabel(rawDept);
 
       if (!map.has(dept)) map.set(dept, { department: dept, attended: 0, sum: 0 });
       const entry = map.get(dept);
@@ -560,50 +563,6 @@ export default function Dashboard({ token, onMessage }) {
     });
   }
 
-  function fetchAttendanceOverallByDepartment() {
-    return callServer(
-      "getAttendance",
-      token,
-      data?.kpis?.attendanceDateKey || todayDateStr()
-    ).then((res) => {
-      const map = new Map();
-
-      (res?.records || []).forEach((r) => {
-        const department = normalizeDepartmentLabel(r.department);
-        if (!map.has(department)) {
-          map.set(department, {
-            department,
-            present: 0,
-            absent: 0,
-            halfDay: 0,
-          });
-        }
-
-        const entry = map.get(department);
-        if (r.status === "Present") entry.present += 1;
-        else if (r.status === "Absent") entry.absent += 1;
-        else if (r.status === "Half Day") entry.halfDay += 1;
-      });
-
-      return Array.from(map.values())
-        .sort((a, b) => a.department.localeCompare(b.department))
-        .map((entry) => {
-          const total = entry.present + entry.absent + entry.halfDay;
-          const pct =
-            total > 0
-              ? Math.round(
-                  ((entry.present + entry.halfDay * 0.5) / total) * 10000
-                ) / 100
-              : null;
-
-          return {
-            department: entry.department,
-            attendancePct: pctLabel(pct),
-          };
-        });
-    });
-  }
-
   function openOverallAttendanceModal() {
     openDeptModal({
       title: "Overall Attendance % — Department-wise",
@@ -611,7 +570,17 @@ export default function Dashboard({ token, onMessage }) {
         { key: "department", label: "Department" },
         { key: "attendancePct", label: "Attendance %" },
       ],
-      fetcher: fetchAttendanceOverallByDepartment,
+      fetcher: async () => {
+        const rows = await callServer(
+          "getDashboardDepartmentAnalytics",
+          token
+        );
+
+        return (rows || []).map((d) => ({
+          department: d.department,
+          attendancePct: pctLabel(d.attendancePct),
+        }));
+      },
     });
   }
 
@@ -625,8 +594,7 @@ export default function Dashboard({ token, onMessage }) {
       fetcher: async () => {
         const rows = await callServer(
           "getDashboardDepartmentAnalytics",
-          token,
-          {}
+          token
         );
 
         return (rows || []).map((d) => ({
@@ -647,8 +615,7 @@ export default function Dashboard({ token, onMessage }) {
       fetcher: async () => {
         const rows = await callServer(
           "getDashboardDepartmentAnalytics",
-          token,
-          {}
+          token
         );
 
         return (rows || []).map((d) => ({
@@ -669,8 +636,7 @@ export default function Dashboard({ token, onMessage }) {
       fetcher: async () => {
         const rows = await callServer(
           "getDashboardDepartmentAnalytics",
-          token,
-          {}
+          token
         );
 
         return (rows || []).map((d) => ({
