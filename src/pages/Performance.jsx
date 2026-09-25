@@ -116,6 +116,7 @@ export default function Performance({ token, onMessage }) {
             <KpiCard label="Present" value={display(detail.attendance?.present)} />
             <KpiCard label="Absent" value={display(detail.attendance?.absent)} />
             <KpiCard label="Half Day" value={display(detail.attendance?.halfDay)} />
+            <KpiCard label="On Duty" value={display(detail.attendance?.onDuty)} />
             <KpiCard label="Pre-Test Total" value={display(detail.preTest?.Total)} />
             <KpiCard
               label="Pre-Test %"

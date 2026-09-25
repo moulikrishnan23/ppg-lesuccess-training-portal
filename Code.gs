@@ -235,7 +235,8 @@ const TEST_BLOCKS = [
 const ATTENDANCE_STATUSES = [
   'Present',
   'Absent',
-  'Half Day'
+  'Half Day',
+  'On Duty'
 ];
 
 /***********************
@@ -597,6 +598,7 @@ function getDashboardData(sessionToken) {
         });
 
       const allRanked = computeOverallStudentRankings_(sessionToken);
+      const testColumns = allRanked.testColumns || [];
 
       const topStudents = allRanked.slice().sort(function (a, b) {
         if (b.percentage !== a.percentage) {
@@ -605,8 +607,10 @@ function getDashboardData(sessionToken) {
         if (b.total !== a.total) {
           return b.total - a.total;
         }
-        if (b.preTest !== a.preTest) {
-          return b.preTest - a.preTest;
+        const aPre = a.preTest1 !== undefined ? a.preTest1 : (a.preTest || 0);
+        const bPre = b.preTest1 !== undefined ? b.preTest1 : (b.preTest || 0);
+        if (bPre !== aPre) {
+          return bPre - aPre;
         }
         return a.name.localeCompare(b.name);
       }).slice(0, 10).map(function (s, i) {
@@ -622,6 +626,11 @@ function getDashboardData(sessionToken) {
         if (a.total !== b.total) {
           return a.total - b.total;
         }
+        const aPre = a.preTest1 !== undefined ? a.preTest1 : (a.preTest || 0);
+        const bPre = b.preTest1 !== undefined ? b.preTest1 : (b.preTest || 0);
+        if (aPre !== bPre) {
+          return aPre - bPre;
+        }
         return a.name.localeCompare(b.name);
       }).slice(0, 10).map(function (s, i) {
         return Object.assign({}, s, { rank: i + 1 });
@@ -631,7 +640,8 @@ function getDashboardData(sessionToken) {
         kpis: Object.assign({}, kpis, getAttendanceTodaySummary_()),
         departmentSummary: departmentSummary,
         topStudents: topStudents,
-        leastStudents: leastStudents
+        leastStudents: leastStudents,
+        testColumns: testColumns
       };
     }
   );
@@ -769,6 +779,7 @@ function computeDashboardTestAnalyticsRaw_() {
           let present = 0;
           let absent = 0;
           let halfDay = 0;
+          let onDuty = 0;
 
           row.forEach(function (value) {
 
@@ -781,19 +792,22 @@ function computeDashboardTestAnalyticsRaw_() {
               absent++;
             } else if (status === 'Half Day') {
               halfDay++;
+            } else if (status === 'On Duty' || status === 'OD') {
+              onDuty++;
             }
           });
 
           const marked =
             present +
             absent +
-            halfDay;
+            halfDay +
+            onDuty;
 
           if (marked > 0) {
 
             const percentage =
               (
-                (present + (halfDay * 0.5)) /
+                (present + onDuty + (halfDay * 0.5)) /
                 marked
               ) * 100;
 
@@ -1518,6 +1532,21 @@ function computeOverallStudentRankings_(sessionToken) {
     return null;
   }
 
+  const testColumns = [
+    { key: 'preTest1', label: 'PreTest 1', id: 'PRE_TEST_1' }
+  ];
+
+  blocks.forEach(function (b) {
+    if (b.id !== 'PRE_TEST_1') {
+      testColumns.push({
+        key: b.id,
+        altKey: 'test' + b.id.replace('TEST_', ''),
+        label: b.label || ('Test ' + b.id.replace('TEST_', '')),
+        id: b.id
+      });
+    }
+  });
+
   const ranked = [];
 
   students.forEach(function (student) {
@@ -1529,23 +1558,23 @@ function computeOverallStudentRankings_(sessionToken) {
     const tech = aRec ? aRec.technical : 0;
 
     const sc = tRec ? tRec.scores : {};
-    const preTest = sc.PRE_TEST_1 !== undefined ? sc.PRE_TEST_1 : 0;
-    const test2 = sc.TEST_2 !== undefined ? sc.TEST_2 : 0;
-    const test3 = sc.TEST_3 !== undefined ? sc.TEST_3 : 0;
-    const test4 = sc.TEST_4 !== undefined ? sc.TEST_4 : 0;
-    const test5 = sc.TEST_5 !== undefined ? sc.TEST_5 : 0;
-    const test6 = sc.TEST_6 !== undefined ? sc.TEST_6 : 0;
+    const preTest1Score = sc.PRE_TEST_1 !== undefined ? sc.PRE_TEST_1 : 0;
 
     let total = 0;
     let hasAnyTest = false;
-    Object.keys(sc).forEach(function (tid) {
-      total += safeNum_(sc[tid]);
-      hasAnyTest = true;
+    blocks.forEach(function (b) {
+      if (sc[b.id] !== undefined && sc[b.id] !== null && sc[b.id] !== '') {
+        const num = Number(sc[b.id]);
+        if (isFinite(num)) {
+          total += num;
+          hasAnyTest = true;
+        }
+      }
     });
 
     const pct = totalMaxMarks > 0 ? (total / totalMaxMarks) * 100 : 0;
 
-    ranked.push({
+    const sObj = {
       rank: 0,
       name: student.name,
       rollNo: canonicalRegisterNumber_(student.registerNumber),
@@ -1554,19 +1583,26 @@ function computeOverallStudentRankings_(sessionToken) {
       communication: comm,
       confidence: conf,
       technical: tech,
-      preTest: preTest,
-      test1: '-',
-      test2: test2,
-      test3: test3,
-      test4: test4,
-      test5: test5,
-      test6: test6,
+      preTest1: preTest1Score,
+      preTest: preTest1Score,
+      testScores: sc,
       total: Math.round(total * 100) / 100,
       percentage: Math.round(pct * 100) / 100,
       hasAnyTest: hasAnyTest
+    };
+
+    blocks.forEach(function (b) {
+      if (b.id !== 'PRE_TEST_1') {
+        const score = sc[b.id] !== undefined ? sc[b.id] : 0;
+        sObj[b.id] = score;
+        sObj['test' + b.id.replace('TEST_', '')] = score;
+      }
     });
+
+    ranked.push(sObj);
   });
 
+  ranked.testColumns = testColumns;
   return ranked;
 }
 
@@ -1581,16 +1617,20 @@ function computeOverallTopStudents_(sessionToken, limit) {
     if (b.total !== a.total) {
       return b.total - a.total;
     }
-    if (b.preTest !== a.preTest) {
-      return b.preTest - a.preTest;
+    const aPre = a.preTest1 !== undefined ? a.preTest1 : (a.preTest || 0);
+    const bPre = b.preTest1 !== undefined ? b.preTest1 : (b.preTest || 0);
+    if (bPre !== aPre) {
+      return bPre - aPre;
     }
     return a.name.localeCompare(b.name);
   });
 
-  return ranked.slice(0, limit).map(function (s, i) {
+  const res = ranked.slice(0, limit).map(function (s, i) {
     s.rank = i + 1;
     return s;
   });
+  res.testColumns = ranked.testColumns;
+  return res;
 }
 
 function getAnalysisForStudent_(student) {
@@ -1675,13 +1715,20 @@ function computeLeastStudents_(sessionToken, limit) {
     if (a.total !== b.total) {
       return a.total - b.total;
     }
+    const aPre = a.preTest1 !== undefined ? a.preTest1 : (a.preTest || 0);
+    const bPre = b.preTest1 !== undefined ? b.preTest1 : (b.preTest || 0);
+    if (aPre !== bPre) {
+      return aPre - bPre;
+    }
     return a.name.localeCompare(b.name);
   });
 
-  return valid.slice(0, limit).map(function (s, i) {
+  const res = valid.slice(0, limit).map(function (s, i) {
     s.rank = i + 1;
     return s;
   });
+  res.testColumns = ranked.testColumns;
+  return res;
 }
 
 function getBulkAttendancePercentagesByName_() {
@@ -1701,7 +1748,7 @@ function getBulkAttendancePercentagesByName_() {
     const name = normalizeValue_(baseRange[i][2]);
     if (!name) continue;
 
-    let present = 0, absent = 0, halfDay = 0;
+    let present = 0, absent = 0, halfDay = 0, onDuty = 0;
     const row = statusMatrix[i] || [];
 
     for (let c = 0; c < row.length; c++) {
@@ -1709,12 +1756,13 @@ function getBulkAttendancePercentagesByName_() {
       if (val === 'Present') present++;
       else if (val === 'Absent') absent++;
       else if (val === 'Half Day') halfDay++;
+      else if (val === 'On Duty' || val === 'OD') onDuty++;
     }
 
-    const totalMarked = present + absent + halfDay;
+    const totalMarked = present + absent + halfDay + onDuty;
     if (totalMarked > 0) {
       result[name.toUpperCase()] =
-        Math.round(((present + halfDay * 0.5) / totalMarked) * 1000) / 10;
+        Math.round(((present + onDuty + halfDay * 0.5) / totalMarked) * 1000) / 10;
     }
   }
 
@@ -1940,7 +1988,7 @@ function getAttendanceTodaySummary_() {
       let hasAttendanceData = false;
       for (let r = 0; r < attendanceMatrix.length; r++) {
         const val = normalizeValue_(attendanceMatrix[r][i]);
-        if (val === 'Present' || val === 'Absent' || val === 'Half Day') {
+        if (val === 'Present' || val === 'Absent' || val === 'Half Day' || val === 'On Duty' || val === 'OD') {
           hasAttendanceData = true;
           break;
         }
@@ -1967,6 +2015,7 @@ function getAttendanceTodaySummary_() {
     presentToday: 0,
     absentToday: 0,
     halfDayToday: 0,
+    onDutyToday: 0,
 
     trainingDay: completed,
     totalTrainingDays: totalTrainingDays,
@@ -2004,6 +2053,8 @@ function getAttendanceTodaySummary_() {
         result.absentToday++;
       } else if (value === 'Half Day') {
         result.halfDayToday++;
+      } else if (value === 'On Duty' || value === 'OD') {
+        result.onDutyToday++;
       }
     }
   }
@@ -2420,6 +2471,7 @@ function getAttendanceSummaryForStudent_(student) {
       present: 0,
       absent: 0,
       halfDay: 0,
+      onDuty: 0,
       attendancePct: 0
     };
   }
@@ -2671,6 +2723,7 @@ function getAttendanceSummaryForStudent_(student) {
   let present = 0;
   let absent = 0;
   let halfDay = 0;
+  let onDuty = 0;
 
 
   rowRange.forEach(function (value) {
@@ -2687,6 +2740,7 @@ function getAttendanceSummaryForStudent_(student) {
      * Present
      * Absent
      * Half Day
+     * On Duty
      *
      * Also accept:
      *
@@ -2694,6 +2748,7 @@ function getAttendanceSummaryForStudent_(student) {
      * A
      * HD
      * H
+     * OD
      */
 
     if (
@@ -2719,6 +2774,15 @@ function getAttendanceSummaryForStudent_(student) {
     ) {
 
       halfDay++;
+
+    } else if (
+      status === 'ON DUTY' ||
+      status === 'ONDUTY' ||
+      status === 'ON-DUTY' ||
+      status === 'OD'
+    ) {
+
+      onDuty++;
     }
   });
 
@@ -2729,12 +2793,14 @@ function getAttendanceSummaryForStudent_(student) {
    * ================================================================
    *
    * Half Day = 0.5
+   * On Duty = 1.0 (official duty)
    */
 
   const totalMarked =
     present +
     absent +
-    halfDay;
+    halfDay +
+    onDuty;
 
 
   const attendancePct =
@@ -2743,6 +2809,7 @@ function getAttendanceSummaryForStudent_(student) {
           (
             (
               present +
+              onDuty +
               halfDay * 0.5
             ) /
             totalMarked
@@ -2756,6 +2823,7 @@ function getAttendanceSummaryForStudent_(student) {
     present: present,
     absent: absent,
     halfDay: halfDay,
+    onDuty: onDuty,
     attendancePct: attendancePct
   };
 }

@@ -12,9 +12,10 @@ import {
 
 function normalizeStatus(value) {
   const text = String(value ?? "").trim().toLowerCase();
-  if (text === "half-day" || text === "halfday") return "Half Day";
+  if (text === "half-day" || text === "halfday" || text === "half day") return "Half Day";
   if (text === "present") return "Present";
   if (text === "absent") return "Absent";
+  if (text === "on duty" || text === "onduty" || text === "od" || text === "on-duty") return "On Duty";
   return String(value ?? "").trim();
 }
 
@@ -67,6 +68,7 @@ export default function Attendance({ token, user, onMessage }) {
     { value: "Present", label: "Present" },
     { value: "Absent", label: "Absent" },
     { value: "Half Day", label: "Half-Day" },
+    { value: "On Duty", label: "On Duty" },
   ];
 
   const filtered = useMemo(() => {
@@ -266,11 +268,12 @@ export default function Attendance({ token, user, onMessage }) {
                             <option value="Present">Present</option>
                             <option value="Absent">Absent</option>
                             <option value="Half Day">Half-Day</option>
+                            <option value="On Duty">On Duty</option>
                           </select>
                         ) : (
                           <span
                             className={`status-${normalizeStatus(r.status).replace(
-                              " ",
+                              /\s+/g,
                               "",
                             )}`}
                           >

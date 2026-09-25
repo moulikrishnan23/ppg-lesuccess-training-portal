@@ -117,11 +117,93 @@ function DeptTable({ columns, rows }) {
 /*  Student ranking table (used for both Top 10 and Least 10)          */
 /* ------------------------------------------------------------------ */
 
-function StudentRankTable({ students, onSelect }) {
+function resolveTestColumns(students, explicitColumns) {
+  if (Array.isArray(explicitColumns) && explicitColumns.length > 0) {
+    return explicitColumns.filter(
+      (c) => c.label !== "Test 1" && c.key !== "test1" && c.id !== "TEST_1",
+    );
+  }
+
+  const cols = [];
+  const hasPreTest = students.some(
+    (s) => s.preTest1 !== undefined || s.preTest !== undefined,
+  );
+  if (hasPreTest) {
+    cols.push({ key: "preTest1", altKey: "preTest", id: "PRE_TEST_1", label: "PreTest 1" });
+  }
+
+  const testNums = new Set();
+  students.forEach((s) => {
+    Object.keys(s).forEach((k) => {
+      const m = k.match(/^TEST_(\d+)$/i) || k.match(/^test(\d+)$/i);
+      if (m) {
+        const num = parseInt(m[1], 10);
+        if (num > 1) testNums.add(num);
+      }
+    });
+    if (s.testScores) {
+      Object.keys(s.testScores).forEach((k) => {
+        const m = k.match(/^TEST_(\d+)$/i);
+        if (m) {
+          const num = parseInt(m[1], 10);
+          if (num > 1) testNums.add(num);
+        }
+      });
+    }
+  });
+
+  const sortedNums = Array.from(testNums).sort((a, b) => a - b);
+  sortedNums.forEach((num) => {
+    cols.push({
+      key: `TEST_${num}`,
+      altKey: `test${num}`,
+      id: `TEST_${num}`,
+      label: `Test ${num}`,
+    });
+  });
+
+  return cols;
+}
+
+function getStudentTestScore(student, col) {
+  if (
+    col.id === "PRE_TEST_1" ||
+    col.key === "preTest1" ||
+    col.label === "PreTest 1"
+  ) {
+    if (student.preTest1 !== undefined && student.preTest1 !== null) {
+      return student.preTest1;
+    }
+    if (student.preTest !== undefined && student.preTest !== null) {
+      return student.preTest;
+    }
+    if (student.testScores?.PRE_TEST_1 !== undefined) {
+      return student.testScores.PRE_TEST_1;
+    }
+    return "-";
+  }
+
+  if (student[col.key] !== undefined && student[col.key] !== null) {
+    return student[col.key];
+  }
+  if (col.altKey && student[col.altKey] !== undefined && student[col.altKey] !== null) {
+    return student[col.altKey];
+  }
+  if (col.id && student.testScores && student.testScores[col.id] !== undefined) {
+    return student.testScores[col.id];
+  }
+  if (student.testScores && student.testScores[col.key] !== undefined) {
+    return student.testScores[col.key];
+  }
+  return "-";
+}
+
+function StudentRankTable({ students, onSelect, testColumns }) {
   const hasPerformanceData = students.some(
     (s) =>
       s.total !== undefined ||
       s.percentage !== undefined ||
+      s.preTest1 !== undefined ||
       s.preTest !== undefined ||
       s.communication !== undefined,
   );
@@ -134,6 +216,10 @@ function StudentRankTable({ students, onSelect }) {
         s.improvementGrowth !== undefined ||
         s.compositeScore !== undefined,
     );
+
+  const resolvedTestCols = hasPerformanceData
+    ? resolveTestColumns(students, testColumns)
+    : [];
 
   return (
     <div className="table-wrap">
@@ -148,13 +234,14 @@ function StudentRankTable({ students, onSelect }) {
                 <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Communication</th>
                 <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Confidence</th>
                 <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Technical</th>
-                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>PreTest</th>
-                <th style={{ whiteSpace: "nowrap", textAlign: "center" }}>Test 1</th>
-                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Test 2</th>
-                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Test 3</th>
-                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Test 4</th>
-                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Test 5</th>
-                <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Test 6</th>
+                {resolvedTestCols.map((col) => (
+                  <th
+                    key={col.key || col.id}
+                    style={{ whiteSpace: "nowrap", textAlign: "right" }}
+                  >
+                    {col.label}
+                  </th>
+                ))}
                 <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Total</th>
                 <th style={{ whiteSpace: "nowrap", textAlign: "right" }}>Percentage</th>
               </>
@@ -190,27 +277,14 @@ function StudentRankTable({ students, onSelect }) {
                   <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
                     {s.technical !== undefined && s.technical !== null ? s.technical : "-"}
                   </td>
-                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
-                    {s.preTest !== undefined && s.preTest !== null ? s.preTest : "-"}
-                  </td>
-                  <td style={{ whiteSpace: "nowrap", textAlign: "center" }}>
-                    {s.test1 !== undefined && s.test1 !== null ? s.test1 : "-"}
-                  </td>
-                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
-                    {s.test2 !== undefined && s.test2 !== null ? s.test2 : "-"}
-                  </td>
-                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
-                    {s.test3 !== undefined && s.test3 !== null ? s.test3 : "-"}
-                  </td>
-                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
-                    {s.test4 !== undefined && s.test4 !== null ? s.test4 : "-"}
-                  </td>
-                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
-                    {s.test5 !== undefined && s.test5 !== null ? s.test5 : "-"}
-                  </td>
-                  <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
-                    {s.test6 !== undefined && s.test6 !== null ? s.test6 : "-"}
-                  </td>
+                  {resolvedTestCols.map((col) => (
+                    <td
+                      key={col.key || col.id}
+                      style={{ whiteSpace: "nowrap", textAlign: "right" }}
+                    >
+                      {getStudentTestScore(s, col)}
+                    </td>
+                  ))}
                   <td style={{ whiteSpace: "nowrap", textAlign: "right", fontWeight: 600 }}>
                     {s.total !== undefined && s.total !== null ? s.total : "-"}
                   </td>
@@ -316,6 +390,8 @@ function StudentTimeline({ detail }) {
         <KpiCard label="Attendance %" value={pctLabel(detail.attendance?.attendancePct)} />
         <KpiCard label="Present" value={detail.attendance?.present ?? "-"} />
         <KpiCard label="Absent" value={detail.attendance?.absent ?? "-"} />
+        <KpiCard label="Half Day" value={detail.attendance?.halfDay ?? "-"} />
+        <KpiCard label="On Duty" value={detail.attendance?.onDuty ?? "-"} />
         <KpiCard label="Pre-Test Total" value={detail.preTest?.Total ?? "-"} />
         <KpiCard
           label="Communication"
@@ -459,14 +535,15 @@ export default function Dashboard({ token, onMessage }) {
       charts.current.att = new Chart(attRef.current, {
         type: "doughnut",
         data: {
-          labels: ["Present", "Absent", "Half Day"],
+          labels: ["Present", "Absent", "Half Day", "On Duty"],
           datasets: [{
             data: [
               data.kpis.presentToday,
               data.kpis.absentToday,
               data.kpis.halfDayToday,
+              data.kpis.onDutyToday || 0,
             ],
-            backgroundColor: ["#1B8A5A", "#DC2626", "#D97706"],
+            backgroundColor: ["#1B8A5A", "#DC2626", "#D97706", "#2563EB"],
           }],
         },
         options: { plugins: { legend: { display: true } } },
@@ -516,7 +593,13 @@ export default function Dashboard({ token, onMessage }) {
       if (!map.has(dept)) map.set(dept, { department: dept, total: 0, count: 0 });
       const entry = map.get(dept);
       entry.total += 1;
-      if (r.status === status) entry.count += 1;
+      const recStatus = (r.status || "").trim().toLowerCase();
+      const targetStatus = status.trim().toLowerCase();
+      const isMatch =
+        recStatus === targetStatus ||
+        (targetStatus === "on duty" && (recStatus === "od" || recStatus === "onduty" || recStatus === "on-duty")) ||
+        (targetStatus === "half day" && (recStatus === "half-day" || recStatus === "halfday" || recStatus === "hd"));
+      if (isMatch) entry.count += 1;
     });
 
     return Array.from(map.values())
@@ -638,6 +721,19 @@ export default function Dashboard({ token, onMessage }) {
         { key: "pct", label: "% Half Day" },
       ],
       fetcher: () => fetchAttendanceDeptBreakdown("Half Day"),
+    });
+  }
+
+  function openOnDutyTodayModal() {
+    openDeptModal({
+      title: "On Duty Today — Department-wise",
+      columns: [
+        { key: "department", label: "Department" },
+        { key: "count", label: "On Duty" },
+        { key: "deptTotal", label: "Dept. Total" },
+        { key: "pct", label: "% On Duty" },
+      ],
+      fetcher: () => fetchAttendanceDeptBreakdown("On Duty"),
     });
   }
 
@@ -794,6 +890,7 @@ export default function Dashboard({ token, onMessage }) {
     { label: "Present Today", value: k.presentToday, onClick: openPresentTodayModal },
     { label: "Absent Today", value: k.absentToday, onClick: openAbsentTodayModal },
     { label: "Half Day Today", value: k.halfDayToday, onClick: openHalfDayTodayModal },
+    { label: "On Duty Today", value: k.onDutyToday ?? 0, onClick: openOnDutyTodayModal },
     { label: "Overall Attendance %", value: `${k.overallAttendancePct}%`, onClick: openOverallAttendanceModal },
     { label: "Training Day", value: `${k.trainingDay} / ${k.totalTrainingDays}` },
     { label: "Completed Days", value: k.completedDays },
@@ -821,24 +918,30 @@ export default function Dashboard({ token, onMessage }) {
         ))}
       </div>
 
-      <div className="chart-grid">
-        <div className="panel">
-        <h3>Top 10 Performance</h3>
-        {data.topStudents?.length ? (
-          <StudentRankTable students={data.topStudents} onSelect={openStudentModal} />
-        ) : (
-          <Empty>No top-student data found.</Empty>
-        )}
-      </div>
-
-      <div className="panel">
+      <div className="panel" style={{ marginBottom: 18 }}>
         <h3>Least 10 Performance</h3>
         {leastStudents?.length ? (
-          <StudentRankTable students={leastStudents} onSelect={openStudentModal} />
+          <StudentRankTable
+            students={leastStudents}
+            onSelect={openStudentModal}
+            testColumns={data.testColumns}
+          />
         ) : (
           <Empty>No least-performing student data found.</Empty>
         )}
       </div>
+
+      <div className="panel" style={{ marginBottom: 18 }}>
+        <h3>Top 10 Performance</h3>
+        {data.topStudents?.length ? (
+          <StudentRankTable
+            students={data.topStudents}
+            onSelect={openStudentModal}
+            testColumns={data.testColumns}
+          />
+        ) : (
+          <Empty>No top-student data found.</Empty>
+        )}
       </div>
 
       <div className="chart-grid">
