@@ -224,6 +224,16 @@ function StudentRankTable({ students, onSelect, testColumns, totalMaxMarks }) {
   const effectiveTotalMax =
     totalMaxMarks ||
     students?.find((s) => s.totalMaxMarks)?.totalMaxMarks ||
+    (() => {
+      const sample = students?.find(
+        (s) => Number(s.total) > 0 && Number(s.percentage) > 0
+      );
+      if (sample) {
+        const derived = Math.round((Number(sample.total) / Number(sample.percentage)) * 100);
+        if (Number.isFinite(derived) && derived > 0) return derived;
+      }
+      return null;
+    })() ||
     (Array.isArray(resolvedTestCols) && resolvedTestCols.some((c) => c.maxMarks)
       ? resolvedTestCols.reduce((sum, c) => sum + (Number(c.maxMarks) || 0), 0)
       : null);
@@ -264,7 +274,12 @@ function StudentRankTable({ students, onSelect, testColumns, totalMaxMarks }) {
         </thead>
         <tbody>
           {students.map((s) => {
-            const studentMax = s.totalMaxMarks || effectiveTotalMax;
+            const studentMax =
+              s.totalMaxMarks ||
+              effectiveTotalMax ||
+              (Number(s.total) > 0 && Number(s.percentage) > 0
+                ? Math.round((Number(s.total) / Number(s.percentage)) * 100)
+                : null);
             const pctValue =
               s.percentage !== undefined && s.percentage !== null
                 ? s.percentage
